@@ -1,4 +1,4 @@
-import { type LucideIcon, MessageSquare, MessagesSquare, Inbox, Bell, LineChart, GitBranch, BarChart3, Newspaper, Zap, Settings, Code2, TerminalSquare, ChevronDown, Plug } from 'lucide-react'
+import { type LucideIcon, MessageSquare, MessagesSquare, Inbox, Bell, LineChart, GitBranch, BarChart3, Newspaper, Zap, Settings, Code2, TerminalSquare, ChevronDown, Plug, Landmark } from 'lucide-react'
 import { type Page } from '../App'
 import { useWorkspace } from '../tabs/store'
 import type { ActivitySection, ViewSpec } from '../tabs/types'
@@ -24,6 +24,7 @@ function activitySectionFor(page: Page): ActivitySection {
     case 'traditional-chat':     return 'traditional-chat'
     case 'notifications-legacy': return 'notifications-legacy'
     case 'connectors-legacy':    return 'connectors-legacy'
+    case 'trading-accounts':     return 'trading-accounts'
   }
 }
 
@@ -63,6 +64,11 @@ interface NavSection {
    *  default. Useful for "this section exists but isn't the recommended
    *  path" framing (Legacy). */
   defaultCollapsed?: boolean
+  /** Optional muted-text paragraph rendered between the section header
+   *  and its items (visible only when the section is expanded). Use
+   *  this to communicate lifecycle stage — e.g. Beta's "stuff here
+   *  works but expect churn" hint. Plain text; keep short. */
+  description?: string
 }
 
 const NAV_SECTIONS: NavSection[] = [
@@ -73,16 +79,34 @@ const NAV_SECTIONS: NavSection[] = [
   // to warrant direct access. Workspaces (the all-templates index)
   // sits alongside; the two aren't redundant: Workspaces = whole set,
   // Chat = chat-shape subset shortcut.
+  //
+  // Market / News are operational tools that work but aren't load-
+  // bearing — they live here because they don't need lifecycle
+  // labelling.
   {
     sectionLabel: '',
     items: [
-      { page: 'inbox',          label: 'Inbox',          icon: Inbox, defaultTab: { kind: 'inbox', params: {} } },
-      { page: 'workspaces',     label: 'Workspaces',     icon: TerminalSquare },
-      { page: 'chat',           label: 'Chat',           icon: MessageSquare },
-      { page: 'portfolio',      label: 'Portfolio',      icon: LineChart, defaultTab: { kind: 'portfolio', params: {} } },
-      { page: 'trading-as-git', label: 'Trading as Git', icon: GitBranch },
-      { page: 'market',         label: 'Market',         icon: BarChart3 },
-      { page: 'news',           label: 'News',           icon: Newspaper, defaultTab: { kind: 'news', params: {} } },
+      { page: 'inbox',      label: 'Inbox',      icon: Inbox, defaultTab: { kind: 'inbox', params: {} } },
+      { page: 'workspaces', label: 'Workspaces', icon: TerminalSquare },
+      { page: 'chat',       label: 'Chat',       icon: MessageSquare },
+      { page: 'market',     label: 'Market',     icon: BarChart3 },
+      { page: 'news',       label: 'News',       icon: Newspaper, defaultTab: { kind: 'news', params: {} } },
+    ],
+  },
+  // Beta — functional but unstable. Goal: unified abstraction across
+  // broker accounts (Trading Accounts) + the Trading-as-Git workflow
+  // + the Portfolio view that surfaces it. Large engineering ahead,
+  // no fixed timeline — configurable today, but lock-in cost can
+  // change as the abstraction settles. Default-expanded because the
+  // items here are actively useful; the Beta label is the right
+  // amount of caution, not a hide.
+  {
+    sectionLabel: 'Beta',
+    description: 'Goal here is a unified abstraction across broker accounts (deposit/withdraw, options, futures, FX). Large engineering effort, no fixed timeline. Configure and try, but don\'t depend on schema or UX as stable yet.',
+    items: [
+      { page: 'trading-accounts', label: 'Trading Accounts', icon: Landmark, defaultTab: { kind: 'settings', params: { category: 'trading' } } },
+      { page: 'trading-as-git',   label: 'Trading as Git',   icon: GitBranch },
+      { page: 'portfolio',        label: 'Portfolio',        icon: LineChart, defaultTab: { kind: 'portfolio', params: {} } },
     ],
   },
   {
@@ -200,6 +224,11 @@ export function ActivityBar({ open, onClose }: ActivityBarProps) {
                     />
                     <span>{section.sectionLabel}</span>
                   </button>
+                )}
+                {showItems && section.description && (
+                  <p className="px-3 mb-2 text-[11px] text-text-muted/60 leading-relaxed">
+                    {section.description}
+                  </p>
                 )}
                 {showItems && (
                   <div className="flex flex-col gap-0.5" id={`activity-section-${si}`}>

@@ -16,6 +16,7 @@ import { ChatChannelListContainer } from './components/ChatChannelListContainer'
 import { TraditionalChatSidebar } from './components/TraditionalChatSidebar'
 import { NotificationsLegacySidebar } from './components/NotificationsLegacySidebar'
 import { ConnectorsLegacySidebar } from './components/ConnectorsLegacySidebar'
+import { TradingAccountsBetaSidebar } from './components/TradingAccountsBetaSidebar'
 import { NewChannelButton } from './components/NewChannelButton'
 import { InboxSidebar } from './components/InboxSidebar'
 import { WorkspacesSidebar } from './components/workspace/WorkspacesSidebar'
@@ -96,6 +97,10 @@ const SECTION_BY_KEY: Record<ActivitySection, SidebarSection> = {
   'connectors-legacy': {
     title: 'Connectors',
     Secondary: ConnectorsLegacySidebar,
+  },
+  'trading-accounts': {
+    title: 'Trading Accounts',
+    Secondary: TradingAccountsBetaSidebar,
   },
 }
 

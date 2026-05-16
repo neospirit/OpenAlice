@@ -43,42 +43,49 @@ Alice runs on your own machine, because trading involves private keys and real m
 
 ### Automation
 
-An append-only event log sits at the center of Alice. All system activity — trades, messages, scheduled fires, heartbeat results — flows through as typed events with real-time subscriptions. Automation features are listeners on this bus:
+Automation has two layers in OpenAlice. They're worth separating because each evolves on its own track:
 
-- **Cron scheduling** — cron expressions, intervals, or one-shot timestamps. On fire, emits an event → listener routes through AI → delivers reply to your last-used channel
-- **Heartbeat** — a special cron job that periodically reviews market conditions, filters by active hours, and only reaches out when something matters
+**Scheduling — *what* fires an AI call.** A typed append-only event log + cron engine that emits events on a schedule. Stable, reusable across both old and new execution models.
+
+- **Cron scheduling** — cron expressions, intervals, or one-shot timestamps
+- **Heartbeat** — a periodic timer with active-hours filtering and a dedup window
 - **Webhooks** — inbound event triggers from external systems (planned)
+
+**Execution — *how* the trigger lands.** Today's heartbeat and cron jobs still use the pre-Workspace wiring: event → AgentCenter (the global chat) → AI run → optional `notify_user` → NotificationsStore → Connectors. That path is fine for "one-in, one-out" pings — heartbeat updates, scheduled market checks — and remains in production. The direction we're moving in: workspace-resident executions, where a scheduled event either fires a one-shot task inside a Workspace OR drives continued dialog on a Workspace's persistent Session. The scheduling layer above is shared either way.
 
 ### Interface
 
 - **Web UI** — chat with SSE streaming, sub-channels, portfolio dashboard with equity curve, and full config management
+- **Workspace** — a per-task directory + git repo + persistent terminal session running your chosen agent CLI (`claude` / `codex` / `shell`) with OpenAlice's MCP tools plumbed in. The recommended path for any non-trivial AI work — native prompt cache, native rendering, no protocol shim
+- **Inbox** — workspace-to-user push channel. Agents call `inbox_push` from inside a workspace to surface a document (rendered live) plus a markdown comment in a dedicated tab; click the reply bar to jump back into the workspace and continue
 - **Telegram** — mobile access with trading panel
 - **MCP server** — tool exposure for external agents
 
 ### And More!
 
 - **Multi-provider AI** — Claude (Agent SDK with OAuth or API key) or Vercel AI SDK (Anthropic, OpenAI, Google), switchable at runtime
-- **Brain** — persistent memory and emotion tracking across conversations
 - **Evolution mode** — permission escalation that gives Alice full project access including Bash, enabling self-modification
 
 
 ## Architecture
 
-Alice has four layers. Each layer only talks to the one directly above or below it.
-
 ```mermaid
 graph TB
-  subgraph Interface["Interface — where users interact"]
+  subgraph Surfaces["Surfaces — where users interact"]
     WEB[Web UI]
+    INB[Inbox tab]
     TG[Telegram]
-    MCP[MCP Server]
+    MCPS[MCP Server]
   end
 
-  subgraph Core["Core — orchestration & routing"]
-    AC[AgentCenter]
-    PR[ProviderRouter]
-    TC[ToolCenter]
-    EL[Event Log]
+  subgraph Workspace["Workspace — agent's home<br/>(dir + git + native CLI)"]
+    WCLI[claude / codex / shell session]
+  end
+
+  subgraph Core["Core — orchestration"]
+    AC[AgentCenter<br/>+ ProviderRouter]
+    TC[ToolCenter<br/>+ Workspace ToolCenter]
+    IS[InboxStore]
     CCR[ConnectorCenter]
   end
 
@@ -91,30 +98,37 @@ graph TB
     MD[Market Data]
     AN[Analysis]
     NC[News]
-    BR[Brain]
   end
 
-  subgraph Automation["Automation — scheduled & event-driven"]
-    CRON[Cron Engine]
-    HB[Heartbeat]
+  subgraph Sched["Scheduling — what fires"]
+    CRON[Cron / Heartbeat / Webhook]
   end
 
-  WEB & TG & MCP --> AC
-  AC --> PR
-  PR -->|Claude| AS[Agent SDK]
-  PR -->|Vercel| VS[Vercel AI SDK]
+  Sched -. legacy execution .-> AC
+  Sched -. workspace-resident .-> Workspace
+
+  WEB --> AC
+  TG --> AC
+  AC --> Domain
+
+  Workspace -->|.mcp.json| MCPS
+  MCPS --> TC
   TC --> Domain
-  EL --> Automation
-  CCR --> Interface
+  Workspace -.inbox_push.-> IS
+  IS --> INB
+
+  CCR --> Surfaces
 ```
 
-**Interface** — external surfaces (Web UI, Telegram, MCP). Users and external agents connect here. ConnectorCenter tracks last-used channel for delivery routing.
+**Surfaces** — external places where users interact with Alice: Web UI (chat, Inbox tab, portfolio dashboards), Telegram, MCP Server. ConnectorCenter tracks the last-used channel for delivery routing.
 
-**Core** — AgentCenter routes all AI calls through ProviderRouter. ToolCenter is a shared registry — domain modules register tools there, and it exports them to whichever AI provider is active. EventLog is the central event bus.
+**Workspace** — A per-task directory + git repo + persistent terminal session running a native agent CLI. The recommended substrate for non-trivial AI work. Wired to OpenAlice via two MCP servers in `.mcp.json`: a global one (full tool catalog) and a per-workspace one (workspace-scoped tools like `inbox_push`, with the wsId carried in the URL path so the agent never traffics its own identity).
 
-**Domain** — business logic. UTA is the trading workspace (see Key Concepts below). Market Data, Analysis, News, and Brain are independent modules, each exposed to AI through tool registrations.
+**Core** — AgentCenter + ProviderRouter route AI calls to the active provider. ToolCenter is the shared registry for global tools; WorkspaceToolCenter holds per-workspace tool factories. InboxStore is an append-only JSONL behind the Inbox tab; ConnectorCenter routes outbound messages on the legacy path.
 
-**Automation** — listeners on the EventLog bus. Cron fires scheduled jobs, Heartbeat is a special cron job for periodic market review.
+**Domain** — UTA is the trading workspace (broker connection + git history + guards). Market Data, Analysis, and News are independent modules, each exposed to AI through tool registrations.
+
+**Scheduling** — Cron, the heartbeat timer, and webhook ingest fire events on a schedule. *What* the event drives is the execution layer: today's heartbeat and cron still take the legacy path through AgentCenter (dotted line — the "one-in, one-out" AI call pattern); the direction we're moving in is workspace-resident execution where a scheduled event either fires a one-shot task inside a Workspace or drives continued dialog on a persistent Session.
 
 ## Key Concepts
 
@@ -124,13 +138,15 @@ graph TB
 
 **Guard** — A pre-execution safety check that runs inside a UTA before orders reach the broker. Guards enforce limits (max position size, cooldown between trades, symbol whitelist) and are configured per-account. Think of it as ESLint for trading — automated rules that catch problems before they go live.
 
-**Heartbeat** — A periodic check-in where Alice reviews market conditions and decides whether to send you a message. Useful for monitoring positions overnight or tracking macro events — Alice reaches out when something matters, stays quiet when it doesn't.
+**Heartbeat** — A scheduling pattern: a recurring timer with an active-hours filter and a dedup window for the message body. The pattern is general; today its execution wiring routes through the pre-Workspace path (AgentCenter → `notify_user` → NotificationsStore → connectors), so a heartbeat tick currently delivers as a message in your last-used channel. As Workspace-resident autonomous work matures, the same scheduling primitive will be wired into workspace executions too.
 
 **Connector** — An external interface through which users interact with Alice. Built-in: Web UI, Telegram, MCP Ask. Delivery always goes to the channel you last spoke through.
 
 **AI Provider** — The AI backend that powers Alice. Claude (via Agent SDK, supports OAuth login or API key) or Vercel AI SDK (Anthropic, OpenAI, Google). Switchable at runtime — no restart needed.
 
-**Workspace** — A directory + git repo + persistent terminal session running a native agent CLI (`claude`, `codex`, or `shell`) of your choice. OpenAlice plumbs its MCP servers into the workspace via `.mcp.json`, so the agent inside sees the workspace's local files plus OpenAlice's full tool surface (trading, market data, news, brain). Workspaces live under `~/.openalice/workspaces/<wsId>/` — each is its own self-contained scratch directory the agent can read, write, and `git commit` inside. This is the recommended substrate for any non-trivial AI work: native prompt cache, native CLI rendering, no protocol shim between you and the model. Capability extensions (browser automation, third-party CLIs, custom scrapers) ship as new workspace **templates** rather than `src/` dependencies, keeping the main repo small.
+**Workspace** — A directory + git repo + persistent terminal session running a native agent CLI (`claude`, `codex`, or `shell`) of your choice. OpenAlice plumbs its MCP servers into the workspace via `.mcp.json`, so the agent inside sees the workspace's local files plus OpenAlice's full tool surface (trading, market data, news, analysis). Workspaces live under `~/.openalice/workspaces/<wsId>/` — each is its own self-contained scratch directory the agent can read, write, and `git commit` inside. This is the recommended substrate for any non-trivial AI work: native prompt cache, native CLI rendering, no protocol shim between you and the model. Capability extensions (browser automation, third-party CLIs, custom scrapers) ship as new workspace **templates** rather than `src/` dependencies, keeping the main repo small.
+
+**Templates & satellite repos** — A workspace template is a bootstrap script + initial file set that materializes a workspace of a particular shape (today: `chat`, `auto-quant`). Templates are how OpenAlice's ecosystem grows without bloating the main repo: when a new capability (a research toolkit, a backtest harness, a custom MCP server) is worth packaging, it lives in its own **satellite repo** that a template clones at bootstrap time. The main repo deliberately doesn't accept ecosystem PRs — it owns the Trading domain and the workspace launcher; everything else routes through satellite repos referenced by templates. Means template authors can ship on their own cadence, and OpenAlice's `src/` stays small.
 
 **Inbox** — Workspace-to-user push channel. Agents working inside a workspace call the `inbox_push` MCP tool to surface docs (rendered live from workspace files) plus markdown commentary in a dedicated Inbox tab. The user reads, then clicks the reply bar at the bottom of the entry to jump back into the workspace's session and continue the conversation there. Inbox is distinct from the legacy **Notifications** surface (now demoted into the Chat sidebar's Traditional section) — that one is reserved for pre-Workspace Automation flows (heartbeat / cron pushes).
 
@@ -167,7 +183,7 @@ The cost: token usage is high (cache control is OpenAlice's responsibility and s
 | Long sessions where token cost matters | **Workspace chat** |
 | Environment with no shell / no CLI installed | Traditional chat |
 
-Today the connectors are wired to traditional chat. If shell-bridged connectors arrive later, they can opt into workspace chat too — the two paths are designed to coexist, not replace each other.
+Today the connectors are wired to traditional chat. Workspace chat is the recommended path going forward; Traditional remains in place specifically because connector-driven flows (Telegram, MCP Ask, webhook callbacks) have no terminal to host a CLI in. If shell-bridged connectors arrive later, they can opt into workspace chat too.
 
 ## Quick Start
 

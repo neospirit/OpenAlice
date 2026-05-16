@@ -18,11 +18,11 @@ interface CategoryItem {
 const CATEGORIES: CategoryItem[] = [
   { label: 'General', category: 'general' },
   { label: 'AI Provider', category: 'ai-provider' },
-  { label: 'Trading Accounts', category: 'trading', alsoActiveFor: ['uta-detail'] },
+  // Trading Accounts moved to its own ActivityBar Beta entry — see
+  // TradingAccountsBetaSidebar. The `settings/trading` ViewSpec is
+  // still the underlying tab.
   // Connectors moved to its own ActivityBar Legacy entry — see
-  // ConnectorsLegacySidebar. The `settings/connectors` ViewSpec is
-  // still the underlying tab, but it's reached from the Legacy
-  // section now, not from this Settings list.
+  // ConnectorsLegacySidebar.
   { label: 'MCP Server', category: 'mcp' },
   { label: 'Market Data', category: 'market-data' },
   { label: 'News Sources', category: 'news-collector' },

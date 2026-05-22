@@ -5,8 +5,8 @@ import { createServer } from 'node:net'
  * that can be bound. Bounded window — fail loud rather than scanning to
  * 65535 if something is very wrong.
  *
- * Used by `scripts/dev.ts` (the dev-mode L2 port authority) to pick the
- * backend's web + MCP ports before spawning. Intentionally duplicated
+ * Used by `scripts/guardian/` (the dev-mode L2 port authority) to pick the
+ * backend's web / MCP / UTA ports before spawning. Intentionally duplicated
  * from `electron/probe-port.ts` — dev script tooling and packaged
  * Electron runtime are different release surfaces, sharing through src/
  * would require breaking the electron tsconfig rootDir boundary.

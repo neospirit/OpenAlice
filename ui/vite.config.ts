@@ -7,7 +7,7 @@ import { resolve } from 'node:path'
 /**
  * Resolve the backend port Vite should proxy /api/* to. Two source paths:
  *
- *   1. `OPENALICE_BACKEND_PORT` env — set by `scripts/dev.ts` orchestrator
+ *   1. `OPENALICE_BACKEND_PORT` env — set by `scripts/guardian/dev.ts` orchestrator
  *      when invoked via `pnpm dev`. Guaranteed to match the port the
  *      backend was spawned on; drift-free.
  *

@@ -1,7 +1,8 @@
 # OpenAlice — server / self-host image.
 #
 # Two-stage build: full toolchain in `build`, slim runtime with only what's
-# needed to run `node dist/main.js` plus the bundled agent CLIs.
+# needed to run the Guardian supervisor + the two long-lived processes
+# (Alice main + UTA service) plus the bundled agent CLIs.
 #
 # Target audience: VPS self-hosters running Workspace chat. Auth is the
 # user's responsibility — `docker exec -it openalice claude` once after
@@ -23,12 +24,16 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 COPY scripts ./scripts
 COPY packages/ibkr/package.json packages/ibkr/
 COPY packages/opentypebb/package.json packages/opentypebb/
+COPY packages/uta-protocol/package.json packages/uta-protocol/
+COPY services/uta/package.json services/uta/
 COPY ui/package.json ui/
 
 RUN pnpm install --frozen-lockfile
 
 # Source + build. `pnpm build` runs `turbo run build` (workspace packages
-# + UI Vite build) then `tsup` bundles the backend into `dist/main.js`.
+# + UI Vite build + services/uta tsup) then `tsup` bundles the Alice
+# backend into `dist/main.js`. UTA service ends up at
+# `services/uta/dist/uta.js`.
 COPY . .
 RUN pnpm build
 
@@ -43,12 +48,19 @@ FROM node:22-trixie-slim AS runtime
 WORKDIR /app
 
 # Bash + POSIX utils are required by workspace bootstrap.sh scripts;
-# bookworm-slim already ships them. We install the two agent CLIs
-# globally so they're on PATH for the PTY sessions OpenAlice spawns.
-#
-# Both come from npm (codex's npm package is a thin wrapper that pulls
-# down the Rust binary on install). Smoke-checking versions at build time
-# fails the build loud if either package broke.
+# trixie-slim already ships them. `tini` becomes PID 1 so signals
+# (SIGTERM from `docker stop`) reach the Guardian supervisor cleanly
+# instead of getting dropped by Node's default PID-1 behaviour, and
+# zombies from short-lived children (workspace CLI auth flows, etc.)
+# get reaped.
+RUN apt-get update && apt-get install -y --no-install-recommends tini \
+    && rm -rf /var/lib/apt/lists/*
+
+# Two agent CLIs installed globally so they're on PATH for the PTY
+# sessions OpenAlice spawns. Both come from npm (codex's npm package is
+# a thin wrapper that pulls down the Rust binary on install).
+# Smoke-checking versions at build time fails the build loud if either
+# package broke.
 RUN npm install -g \
         @anthropic-ai/claude-code \
         @openai/codex \
@@ -56,20 +68,28 @@ RUN npm install -g \
     && codex --version \
     && npm cache clean --force
 
-# Production artifacts.
+# Production artifacts. The Guardian script (`scripts/guardian/prod.mjs`)
+# expects `dist/main.js` (Alice) and `services/uta/dist/uta.js` (UTA)
+# next to each other at /app.
 COPY --from=build /src/dist                       ./dist
+COPY --from=build /src/services/uta/dist          ./services/uta/dist
 COPY --from=build /src/ui/dist                    ./ui/dist
 COPY --from=build /src/default                    ./default
 COPY --from=build /src/src/workspaces/templates   ./src/workspaces/templates
-# tsup bundles backend deps into dist/main.js where possible, but a few
-# native modules (notably node-pty) stay as runtime requires.
+# tsup bundles backend deps into the entry files where possible, but
+# native modules (node-pty, longbridge, etc.) stay as runtime requires.
 COPY --from=build /src/node_modules               ./node_modules
 COPY --from=build /src/package.json               ./package.json
-# Workspace packages — node_modules/@traderalice/* are pnpm symlinks
+# Workspace packages — `node_modules/@traderalice/*` are pnpm symlinks
 # resolving to `packages/*/dist` via relative paths. Without these,
-# `import('@traderalice/ibkr')` from the bundled dist/main.js fails
+# `import('@traderalice/ibkr')` from the bundled `dist` files fails
 # with ERR_MODULE_NOT_FOUND at startup.
 COPY --from=build /src/packages                   ./packages
+COPY --from=build /src/services/uta/package.json  ./services/uta/package.json
+# Guardian supervisor lives in the scripts/ tree; only the prod entry is
+# needed at runtime, but copying the directory keeps the file path the
+# CMD references stable.
+COPY --from=build /src/scripts                    ./scripts
 
 # Two-home model — see src/core/paths.ts.
 #   /app  = APP_RESOURCES_HOME  (image content, baked in)
@@ -78,13 +98,18 @@ COPY --from=build /src/packages                   ./packages
 # auth tokens + agent state persist across container rebuild.
 ENV OPENALICE_APP_HOME=/app \
     OPENALICE_HOME=/data \
+    OPENALICE_USER_DATA_HOME=/data \
     AQ_LAUNCHER_ROOT=/data/workspaces \
     HOME=/data/home \
     NODE_ENV=production \
     OPENALICE_WEB_PORT=47331 \
-    OPENALICE_MCP_PORT=47332
+    OPENALICE_MCP_PORT=47332 \
+    OPENALICE_UTA_PORT=47333
 
 VOLUME ["/data"]
 EXPOSE 47331
 
-CMD ["node", "dist/main.js"]
+# tini handles signal forwarding + zombie reaping; Guardian then spawns
+# UTA → Alice and supervises the lifecycle (see scripts/guardian/prod.mjs).
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["node", "scripts/guardian/prod.mjs"]

@@ -595,7 +595,8 @@ export class UnifiedTradingAccount {
   }
 
   async getQuote(contract: Contract): Promise<Quote> {
-    const quote = await this._callBroker(() => this.broker.getQuote(contract))
+    const resolved = this._expandAliceIdIfNeeded(contract)
+    const quote = await this._callBroker(() => this.broker.getQuote(resolved))
     this.stampAliceId(quote.contract)
     return quote
   }
@@ -623,9 +624,35 @@ export class UnifiedTradingAccount {
   }
 
   async getContractDetails(query: Contract): Promise<ContractDetails | null> {
-    const details = await this._callBroker(() => this.broker.getContractDetails(query))
+    const resolved = this._expandAliceIdIfNeeded(query)
+    const details = await this._callBroker(() => this.broker.getContractDetails(resolved))
     if (details) this.stampAliceId(details.contract)
     return details
+  }
+
+  /** Internal: if the caller passed `{ aliceId, ...overrides }` without a
+   *  populated symbol/localSymbol, expand via the broker's native-key
+   *  decoder and overlay any explicit overrides. Keeps the in-process
+   *  callers (AI tool, ad-hoc scripts) and the HTTP route layer on the
+   *  same expansion path so brokers never see an aliceId-only stub. */
+  private _expandAliceIdIfNeeded(contract: Contract): Contract {
+    const hasNative = !!(contract.symbol || contract.localSymbol)
+    if (!contract.aliceId || hasNative) return contract
+    const expanded = this.contractFromAliceId(contract.aliceId)
+    const src = contract as unknown as Record<string, unknown>
+    const dst = expanded as unknown as Record<string, unknown>
+    // Skip aliceId (already on expanded) and Contract default values —
+    // `new Contract()` populates every string field with `''`, so a
+    // blanket copy would clobber the expanded symbol/localSymbol with
+    // the caller's defaults. The override semantics only matter for
+    // fields the caller actually set to a non-default value.
+    for (const key of Object.keys(src)) {
+      const value = src[key]
+      if (key === 'aliceId') continue
+      if (value === undefined || value === '' || value === null) continue
+      dst[key] = value
+    }
+    return expanded
   }
 
   getCapabilities(): AccountCapabilities {

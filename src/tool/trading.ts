@@ -164,17 +164,13 @@ hitting the broker, which otherwise expects the bare base ticker.`,
       }),
       execute: async ({ source, symbol, aliceId, secType, currency }) => {
         const uta = await manager.resolveOne(source)
-        // Expand aliceId via the UTA's native-key decoder so the broker
-        // sees a contract with populated `symbol` / `localSymbol`. After
-        // main.ts swaps to the SDK the alternative is sending aliceId in
-        // the body to POST /contracts/details — that lands together with
-        // the swap.
-        let query: Contract
-        try {
-          query = aliceId ? uta.contractFromAliceId(aliceId) : new Contract()
-        } catch (err) {
-          return handleBrokerError(err)
-        }
+        // Tool only assembles a Contract shell here — aliceId expansion
+        // is now done inside `UnifiedTradingAccount.getContractDetails`
+        // (and identically by the UTA HTTP route), so this code path is
+        // the same whether `manager` is the real in-process UTAManager
+        // or the SDK.
+        const query = new Contract()
+        if (aliceId) query.aliceId = aliceId
         if (symbol) query.symbol = symbol
         if (secType) query.secType = coerceSecType(secType)
         if (currency) query.currency = currency
@@ -326,7 +322,10 @@ If this tool returns an error with transient=true, wait a few seconds and retry 
         }
         try {
           const uta = await manager.resolveOne(source ?? parsed.utaId)
-          const contract = uta.contractFromAliceId(aliceId)
+          // Same as getContractDetails — aliceId expansion lives inside
+          // UnifiedTradingAccount.getQuote (and the route), so the tool
+          // just hands over the aliceId stub.
+          const contract = Object.assign(new Contract(), { aliceId })
           return { source: uta.id, ...await uta.getQuote(contract) }
         } catch (err) {
           return handleBrokerError(err)

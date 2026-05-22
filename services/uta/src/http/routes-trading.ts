@@ -276,47 +276,23 @@ export function createTradingRoutes(ctx: EngineContext) {
     try {
       const body = await c.req.json().catch(() => ({}))
       const { Contract } = await import('@traderalice/ibkr')
-      let contract: typeof Contract.prototype
-      if (typeof body.aliceId === 'string' && body.aliceId.length > 0) {
-        contract = account.contractFromAliceId(body.aliceId)
-        for (const [k, v] of Object.entries(body)) {
-          if (k === 'aliceId') continue
-          if (v !== undefined) (contract as Record<string, unknown>)[k] = v
-        }
-      } else {
-        contract = Object.assign(new Contract(), body)
-      }
+      const contract = Object.assign(new Contract(), body)
       return c.json(await account.getQuote(contract))
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : String(err) }, 500)
     }
   })
 
-  // Contract details — drilldown after a search hit. The body accepts
-  // either a raw `Contract` subset (symbol / secType / conId / exchange
-  // / currency) OR an `aliceId` — when aliceId is present the broker's
-  // native-key decoder expands it to a full Contract before the lookup,
-  // matching the in-process `contractFromAliceId` flow the AI tool used
-  // to call directly.
+  // Contract details — drilldown after a search hit. Body shape is a
+  // `Contract` subset; when `aliceId` is present, `getContractDetails`
+  // expands it internally via the broker's native-key decoder.
   app.post('/uta/:id/contracts/details', async (c) => {
     const account = resolveAccount(ctx, c)
     if (!account) return c.json({ error: 'Account not found' }, 404)
     try {
       const body = await c.req.json().catch(() => ({}))
       const { Contract } = await import('@traderalice/ibkr')
-      let query: typeof Contract.prototype
-      if (typeof body.aliceId === 'string' && body.aliceId.length > 0) {
-        query = account.contractFromAliceId(body.aliceId)
-        // Caller-supplied fields (symbol / secType / currency) override
-        // the aliceId-derived defaults — same semantics as the in-process
-        // call in the old tool layer.
-        for (const [k, v] of Object.entries(body)) {
-          if (k === 'aliceId') continue
-          if (v !== undefined) (query as Record<string, unknown>)[k] = v
-        }
-      } else {
-        query = Object.assign(new Contract(), body)
-      }
+      const query = Object.assign(new Contract(), body)
       const details = await account.getContractDetails(query)
       return c.json(details ?? null)
     } catch (err) {

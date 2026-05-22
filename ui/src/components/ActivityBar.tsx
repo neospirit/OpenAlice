@@ -95,8 +95,8 @@ const NAV_SECTIONS: NavSection[] = [
     sectionLabel: '',
     items: [
       { page: 'inbox',      label: 'Inbox',      icon: Inbox, defaultTab: { kind: 'inbox', params: {} } },
-      { page: 'workspaces', label: 'Workspaces', icon: TerminalSquare },
       { page: 'chat',       label: 'Chat',       icon: MessageSquare },
+      { page: 'workspaces', label: 'Workspaces', icon: TerminalSquare },
       { page: 'market',     label: 'Market',     icon: BarChart3 },
       { page: 'news',       label: 'News',       icon: Newspaper, defaultTab: { kind: 'news', params: {} } },
     ],

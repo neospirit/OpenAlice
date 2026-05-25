@@ -107,86 +107,201 @@ migration framework at `src/migrations/`, not ad-hoc startup code.
 
 ## Project Structure
 
+OpenAlice is a pnpm monorepo. Two long-running processes (Alice + UTA),
+supervised by Guardian, sharing one `data/` volume. Filesystem layout
+roughly mirrors that split — `src/` is Alice, `services/uta/` is UTA,
+`packages/` is what they wire across.
+
 ```
-src/
+src/                           # Alice process — agent runtime
 ├── main.ts                    # Composition root
-├── core/
-│   ├── agent-center.ts        # Top-level AI orchestration, owns GenerateRouter
-│   ├── ai-provider-manager.ts # GenerateRouter + StreamableResult + AskOptions
-│   ├── tool-center.ts         # Centralized tool registry (Vercel + MCP export)
-│   ├── session.ts             # JSONL session store
-│   ├── compaction.ts          # Auto-summarize long context windows
-│   ├── config.ts              # Zod-validated config loader (generic account schema with brokerConfig)
-│   ├── ai-config.ts           # Runtime AI provider selection
-│   ├── event-log.ts           # Append-only JSONL event log
-│   ├── connector-center.ts    # ConnectorCenter — push delivery + last-interacted tracking
-│   ├── async-channel.ts       # AsyncChannel for streaming provider events to SSE
-│   ├── model-factory.ts       # Model instance factory for Vercel AI SDK
-│   ├── media.ts               # MediaAttachment extraction
-│   ├── media-store.ts         # Media file persistence
-│   └── types.ts               # Plugin, EngineContext interfaces
-├── ai-providers/
-│   ├── vercel-ai-sdk/         # Vercel AI SDK ToolLoopAgent
-│   └── agent-sdk/             # Claude backend (@anthropic-ai/claude-agent-sdk, supports OAuth + API key)
-├── domain/
-│   ├── market-data/           # Structured data layer (typebb in-process + OpenBB API remote)
-│   ├── trading/               # Unified multi-account trading, guard pipeline, git-like commits
-│   │   ├── account-manager.ts # UTA lifecycle (init, reconnect, enable/disable) + registry
-│   │   ├── git-persistence.ts # Git state load/save
-│   │   └── brokers/
-│   │       ├── registry.ts    # Broker self-registration (configSchema + configFields + fromConfig)
-│   │       ├── alpaca/        # Alpaca (US equities)
-│   │       ├── ccxt/          # CCXT (100+ crypto exchanges)
-│   │       ├── ibkr/          # Interactive Brokers (TWS/Gateway)
-│   │       └── mock/          # In-memory test broker
-│   ├── analysis/              # Indicators, technical analysis, sandbox
+├── core/                      # Orchestration primitives. AgentCenter +
+│                              #   GenerateRouter (provider selection) +
+│                              #   ToolCenter + ConnectorCenter + session
+│                              #   store + event-log + listener/producer.
+│                              #   Workspace-scoped tool registry lives
+│                              #   here too (workspace-tool-center.ts).
+├── ai-providers/              # AI backend implementations.
+│   ├── agent-sdk/             # Claude via @anthropic-ai/claude-agent-sdk
+│   ├── codex/                 # OpenAI Codex CLI / API
+│   ├── vercel-ai-sdk/         # Vercel AI SDK (Anthropic/OpenAI/Google)
+│   ├── mock/                  # Test provider
+│   ├── presets.ts             # Preset catalog (profile schemas)
+│   └── sdk-adapters.ts        # Provider → adapter resolution
+├── domain/                    # Non-broker, non-state domains.
+│   ├── market-data/           # typebb in-process + OpenBB API remote
+│   ├── analysis/              # Indicators / TA / sandbox
 │   ├── news/                  # RSS collector + archive search
-│   ├── brain/                 # Cognitive state (memory, emotion)
 │   └── thinking/              # Safe expression evaluator
-├── tool/                      # AI tool definitions — thin bridge from domain to ToolCenter
-│   ├── trading.ts             # Trading tools (delegates to domain/trading)
-│   ├── equity.ts              # Equity fundamental tools (uses domain/market-data)
-│   ├── market.ts              # Symbol search tools (uses domain/market-data)
-│   ├── analysis.ts            # Indicator calculation tools (uses domain/analysis)
-│   ├── news.ts                # News archive tools (uses domain/news)
-│   └── thinking.ts            # Reasoning tools (uses domain/thinking)
-├── connectors/
-│   ├── web/                   # Web UI (Hono, SSE streaming, sub-channels)
+│                              # NOTE: domain/trading was ejected to
+│                              # services/uta. domain/brain was retired
+│                              # (migration 0006).
+├── tool/                      # AI tool definitions — thin bridges from
+│                              # domain → ToolCenter (trading, equity,
+│                              # market, analysis, news, economy,
+│                              # thinking, session, inbox-push,
+│                              # notify-user). trading.ts is now a thin
+│                              # HTTP-SDK wrapper, not a domain caller.
+├── workspaces/                # Workspace launcher (cost-curve-inversion
+│                              # mechanism, see Key Architecture). Pool
+│                              # of PTY sessions, scrollback store,
+│                              # template registry, CLI adapters, agent
+│                              # probe, file/git services for in-workspace
+│                              # ops, persistent-session reattach.
+│   ├── adapters/              # claude.ts / codex.ts / shell.ts
+│   └── templates/             # auto-quant, chat, finance-research
+├── services/                  # Cross-cutting services Alice itself owns.
+│   ├── auth/                  # Admin-token store + session-store
+│   ├── uta-client/            # SDK adapters mirroring UTA's in-process
+│                              #   shape: UTAManagerSDK + UTAAccountSDK
+│   └── uta-supervisor/        # health probe + restart-trigger
+│                              #   (flag-file protocol to Guardian)
+├── connectors/                # Push channels.
+│   ├── web/                   # Web UI (Hono, SSE, sub-channels)
 │   ├── telegram/              # Telegram bot (grammY)
-│   └── mcp-ask/               # MCP Ask connector
-├── plugins/
-│   └── mcp.ts                 # MCP protocol server
-├── task/
-│   ├── cron/                  # Cron scheduling
-│   └── heartbeat/             # Periodic heartbeat
-└── skills/                    # Agent skill definitions
+│   ├── mcp-ask/               # MCP Ask connector
+│   └── mock/                  # Test connector
+├── server/                    # In-process servers Alice exposes.
+│   ├── mcp.ts                 # MCP protocol server
+│   └── opentypebb.ts          # Mounted market-data routes
+├── webui/                     # Hono web plugin internals.
+│   ├── plugin.ts              # WebPlugin (bootstrap, mount order)
+│   ├── middleware/            # auth.ts (admin-token gate)
+│   ├── routes/                # ~23 route files; trading routes are
+│                              #   BFF-proxied to UTA, not handled here
+│   └── workspaces-ws.ts       # PTY WebSocket upgrade + auth gate
+├── migrations/                # Versioned data migrations (0001–0006).
+│                              # See `## Migrations` for the rule.
+└── task/                      # cron, heartbeat, metrics
+
+services/uta/                  # UTA process — broker carrier
+├── src/main.ts                # UTA bootstrap
+├── src/http/                  # routes-trading.ts + routes-simulator.ts
+│                              #   (the 24 trading routes Alice's BFF
+│                              #   forwards to)
+└── src/domain/trading/        # ALL broker / git-state / FX / snapshot
+                               #   logic lives here, not in Alice.
+                               #   brokers/ contains alpaca, ccxt, ibkr,
+                               #   longbridge, mock, others.
+
+packages/                      # Shared workspace packages.
+├── uta-protocol/              # @traderalice/uta-protocol — wire types
+│                              #   + zod schemas + client SDK. Alice and
+│                              #   UTA both depend on this; the only
+│                              #   shape that crosses the process line.
+├── ibkr/                      # @traderalice/ibkr — IBKR TWS port
+│                              #   (UTA-owned; do not import from src/)
+└── opentypebb/                # @traderalice/opentypebb — OpenBB TS port
+
+scripts/guardian/              # L2 process supervisor.
+├── dev.ts                     # `pnpm dev` entry — spawns UTA → Alice → Vite
+├── prod.mjs                   # Docker entry, tini-supervised
+└── shared.ts                  # Port probe, flag-watch, cascade shutdown
+
+ui/                            # React frontend (Vite). auth/ holds the
+                               # login gate; lives outside `src/` because
+                               # it ships separately.
+
+data/                          # All persistent state (gitignored).
+                               # config/, sessions/, trading/, control/
+                               # (UTA restart flag), backups, etc.
 ```
 
 ## Key Architecture
 
-### AgentCenter → GenerateRouter → GenerateProvider
+### Workspaces — the cost-curve-inversion mechanism
 
-Two layers (Engine was removed):
+`src/workspaces/` is OpenAlice's most important architectural surface and
+the reason recent feature work has been compounding cheaply. A workspace
+is a managed, persistent shell session (PTY-backed, scrollback-replayed,
+template-bootstrapped) inside which an AI agent runs an entire capability
+end-to-end — research, quant iteration, auto-galgame-style harnesses,
+etc. The launcher itself stays small; new capabilities ship as new
+templates and satellite repos rather than new code paths inside Alice.
 
-1. **AgentCenter** (`core/agent-center.ts`) — top-level orchestration. Manages sessions, compaction, and routes calls through GenerateRouter. Exposes `ask()` (stateless) and `askWithSession()` (with history).
+Why this layer matters more than the rest:
 
-2. **GenerateRouter** (`core/ai-provider-manager.ts`) — reads `ai-provider.json` on each call, resolves to active provider. Two backends:
-   - Agent SDK (`inputKind: 'text'`) — Claude via @anthropic-ai/claude-agent-sdk, tools via in-process MCP
-   - Vercel AI SDK (`inputKind: 'messages'`) — direct API calls, tools via Vercel tool system
+- **Linear complexity, exponential value.** Each new capability is an
+  isolated workspace; the only thing Alice's core has to grow is the
+  scheduler. The dead-end alternative — adding workflow abstractions for
+  every capability inside `src/` — produced exponential complexity for
+  linear value, and is the reason the old chat-hook layer burned ~50% of
+  development time before this pivot.
+- **Sandboxable.** Workspaces map cleanly to cloud sandboxes and to
+  parallel agents; you can run 20 of them.
+- **Boundary discipline.** A workspace is the natural unit at which to
+  decide "AI handles this autonomously" vs "human must approve."
 
-**AIProvider interface**: `ask(prompt)` for one-shot, `generate(input, opts)` for streaming `ProviderEvent` (tool_use / tool_result / text / done). Optional `compact()` for provider-native compaction.
+Practical implication: when adding agent-facing capability, default to
+**new template / new satellite repo**, not new `src/` modules. See
+memory `feedback_workspace_as_capability_boundary` and
+`project_satellite_repo_ecosystem`.
 
-**StreamableResult**: dual interface — `PromiseLike` (await for result) + `AsyncIterable` (for-await for streaming). Multiple consumers each get independent cursors.
+Load-bearing files: `service.ts` (lifecycle), `session-pool.ts` (PTYs),
+`session-registry.ts` (persistence), `scrollback-store.ts` (replay),
+`template-registry.ts` (templates), `adapters/{claude,codex,shell}.ts`
+(CLI wiring), `protocol.ts` (UI ↔ workspace wire shape).
 
-Per-request provider and model overrides via `AskOptions.provider` and `AskOptions.vercelAiSdk` / `AskOptions.agentSdk`.
+### Alice ↔ UTA split
+
+The broker domain runs as a separate process. Alice owns the agent
+runtime; UTA owns broker connections, git-like trade approval state, FX,
+snapshots, and all `IBroker` implementations. They communicate over HTTP
+via `@traderalice/uta-protocol` (the only shape that crosses the line).
+Today they're co-located on `127.0.0.1`; the protocol exists so UTA can
+detach to a separate device (hardware-wallet-style) without rewriting
+either side.
+
+Concretely:
+
+- `services/uta/src/domain/trading/` is the only place broker code lives.
+- `src/services/uta-client/` (UTAManagerSDK / UTAAccountSDK) mirrors UTA's
+  in-process interfaces, so the tool layer (`tool/trading.ts`) reads as
+  if it were calling local code.
+- Alice's `/api/trading/*` routes are BFF-proxied to UTA.
+- Config changes that affect UTA go through a flag-file restart protocol
+  (`data/control/restart-uta.flag`, watched by Guardian). UTA itself has
+  no in-process hot-reload — startup path == restart path.
+
+### AI provider layer (in flight — calling shape will change)
+
+> ⚠️ This section describes the current wiring, not the destination.
+> The provider routing layer is destined for redesign — the cross-shape
+> assumptions between Anthropic-API-shape and OpenAI-API-shape backends
+> are leaking, and the registry pattern needs rework. Before adding a
+> new provider or changing routing behavior, **check with the user
+> first.** See memory `feedback_no_bandaid_on_shape_mismatch`.
+
+Today:
+
+- **AgentCenter** (`core/agent-center.ts`) — top-level orchestration.
+  Manages sessions, compaction, routes through GenerateRouter. Exposes
+  `ask()` (stateless) and `askWithSession()` (with history).
+- **GenerateRouter** (`core/ai-provider-manager.ts`) — reads
+  `ai-provider.json`, resolves to the active provider. Four backends
+  registered today: `agent-sdk` (Claude), `codex` (OpenAI Codex),
+  `vercel-ai-sdk` (Anthropic / OpenAI / Google), `mock`.
+- **AIProvider interface**: `ask(prompt)` one-shot, `generate(input, opts)`
+  streams `ProviderEvent`s (`tool_use` / `tool_result` / `text` / `done`).
+  Optional `compact()` for provider-native compaction.
+- **StreamableResult**: dual interface — `PromiseLike` (await for result)
+  + `AsyncIterable` (for-await for streaming). Multiple consumers each
+  get independent cursors.
+- Per-request overrides via `AskOptions.provider` and the per-backend
+  option blocks (`AskOptions.vercelAiSdk`, `AskOptions.agentSdk`, etc.).
 
 ### ConnectorCenter
 
-`connector-center.ts` manages push channels (Web, Telegram, MCP Ask). Tracks last-interacted channel for delivery routing.
+`core/connector-center.ts` manages push channels (Web, Telegram,
+MCP Ask). Tracks last-interacted channel for delivery routing.
 
 ### ToolCenter
 
-Centralized registry. `tool/` files register tools via `ToolCenter.register()`, exports in Vercel and MCP formats. Decoupled from AgentCenter.
+Centralized registry. Files under `src/tool/` register tools via
+`ToolCenter.register()`; exports in both Vercel-tool and MCP shapes.
+Decoupled from AgentCenter. Workspace-scoped tool registration goes
+through `core/workspace-tool-center.ts` (per-workspace MCP exposure
+without polluting the global tool list).
 
 ## Conventions
 

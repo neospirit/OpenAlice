@@ -1,5 +1,6 @@
 import { http, HttpResponse } from 'msw'
 import { demoWorkspace, demoTemplate } from '../fixtures/workspaces'
+import { demoWorkspaceFiles } from '../fixtures/inbox'
 
 export const workspacesHandlers = [
   http.get('/api/workspaces', () => HttpResponse.json({ workspaces: [demoWorkspace] })),
@@ -27,9 +28,13 @@ export const workspacesHandlers = [
   http.get('/api/workspaces/:id/files', () =>
     HttpResponse.json({ path: '/', entries: [] }),
   ),
-  http.get('/api/workspaces/:id/file', () =>
-    HttpResponse.json({ error: 'Demo mode — file contents are not available.' }, { status: 404 }),
-  ),
+  http.get('/api/workspaces/:id/file', ({ request }) => {
+    const url = new URL(request.url)
+    const path = url.searchParams.get('path') ?? ''
+    const content = demoWorkspaceFiles[path]
+    if (content != null) return HttpResponse.json({ content })
+    return HttpResponse.json({ error: 'file_not_found' }, { status: 404 })
+  }),
 
   http.post('/api/workspaces/:id/sessions/spawn', ({ params }) =>
     HttpResponse.json({

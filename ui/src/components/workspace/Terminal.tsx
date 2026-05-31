@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 
 import { FitAddon } from '@xterm/addon-fit';
@@ -12,7 +12,14 @@ import {
   type ClientControlMessage,
 } from './protocol';
 import { darkTheme } from './theme';
-import { DemoTerminalStub } from '../../demo/DemoTerminalStub';
+// Lazy-import so the demo subtree (transcripts, fixtures, handlers) is
+// dynamic-imported only when demo mode is actually on. With a static import,
+// Rollup is conservative about module side-effects (the transcript file
+// builds its frames at top level) and the transcript strings leak into the
+// production bundle even though the call site is dead-code.
+const DemoTerminalReplay = lazy(() =>
+  import('../../demo/DemoTerminalReplay').then((m) => ({ default: m.DemoTerminalReplay })),
+);
 
 type Status = 'connecting' | 'connected' | 'closed' | 'error' | 'kicked';
 
@@ -67,7 +74,13 @@ export interface TerminalViewProps {
 }
 
 export function TerminalView(props: TerminalViewProps): ReactElement {
-  if (import.meta.env.VITE_DEMO_MODE) return <DemoTerminalStub label={props.label ?? props.wsId} />;
+  if (import.meta.env.VITE_DEMO_MODE) {
+    return (
+      <Suspense fallback={null}>
+        <DemoTerminalReplay label={props.label ?? props.wsId} wsId={props.wsId} sessionId={props.sessionId} />
+      </Suspense>
+    );
+  }
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [status, setStatus] = useState<Status>('connecting');
   const [pid, setPid] = useState<number | null>(null);

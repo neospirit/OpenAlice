@@ -232,7 +232,14 @@ export const useWorkspace = create<WorkspaceStore>()(
     }),
     {
       name: 'openalice.workspace.v2',
-      version: 3,
+      // v4: the `chat` and `notifications-inbox` ViewSpec kinds (and the
+      // traditional-chat / notifications-legacy / connectors-legacy
+      // ActivitySections) were removed with the legacy chat cluster. A
+      // persisted tab or selectedSidebar of a removed kind would make
+      // TabStrip call getView() on a missing kind and crash on rehydrate;
+      // bumping the version drops stale persisted state (no migrate fn —
+      // schema bump clears, per this store's loud-fail contract).
+      version: 4,
       // Persist only the data shape — actions are recreated by the store factory.
       partialize: (state) => ({
         tabs: state.tabs,

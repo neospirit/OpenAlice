@@ -1,9 +1,9 @@
 import { http, HttpResponse } from 'msw'
-import { demoWorkspace, demoTemplate } from '../fixtures/workspaces'
+import { demoWorkspaces, demoTemplates } from '../fixtures/workspaces'
 import { demoWorkspaceFiles } from '../fixtures/inbox'
 
 export const workspacesHandlers = [
-  http.get('/api/workspaces', () => HttpResponse.json({ workspaces: [demoWorkspace] })),
+  http.get('/api/workspaces', () => HttpResponse.json({ workspaces: demoWorkspaces })),
   http.post('/api/workspaces', () =>
     HttpResponse.json(
       { ok: false, status: 400, error: { error: 'bootstrap_failed', message: 'Demo mode — workspace creation is disabled.' } },
@@ -13,7 +13,7 @@ export const workspacesHandlers = [
   http.delete('/api/workspaces/:id', () => HttpResponse.json(true)),
   http.post('/api/workspaces/:id/stop', () => HttpResponse.json(true)),
 
-  http.get('/api/workspaces/templates', () => HttpResponse.json({ templates: [demoTemplate] })),
+  http.get('/api/workspaces/templates', () => HttpResponse.json({ templates: demoTemplates })),
   http.get('/api/workspaces/templates/:name/readme', () =>
     HttpResponse.text('', { status: 404 }),
   ),

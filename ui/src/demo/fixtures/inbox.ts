@@ -25,7 +25,7 @@ export const demoInboxEntry: InboxEntry = {
 export const demoWorkspaceFiles: Record<string, string> = {
   [DEMO_REPORT_PATH]: `# AAPL Q1 — Hidden Deceleration Signal
 
-**Workspace:** demo · **Generated:** just now
+**Workspace:** aapl-q1 · **Generated:** just now
 
 ## TL;DR
 

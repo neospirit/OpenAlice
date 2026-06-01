@@ -239,7 +239,11 @@ export const useWorkspace = create<WorkspaceStore>()(
       // TabStrip call getView() on a missing kind and crash on rehydrate;
       // bumping the version drops stale persisted state (no migrate fn —
       // schema bump clears, per this store's loud-fail contract).
-      version: 4,
+      // v5: the demo `/api/news` handler shape mismatch poisoned any
+      // session that had a news tab open — NewsPage's `[...articles]`
+      // throws when res.items is undefined, and the rehydrate replays
+      // that tab open on every reload. Bump clears the loop.
+      version: 5,
       // Persist only the data shape — actions are recreated by the store factory.
       partialize: (state) => ({
         tabs: state.tabs,

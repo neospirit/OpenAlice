@@ -1,37 +1,23 @@
 import { http, HttpResponse } from 'msw'
+import { demoNewsArticles } from '../fixtures/news'
+import type { NewsListResponse } from '../../api/types'
 
 /**
- * News demo handler — seeded articles for the showcase.
+ * News demo handler.
  *
- * (Previously also mocked the legacy /api/notifications/history feed; the
- * NotificationsStore surface was removed, so only the news list remains.
- * The `/api/news/collector` config endpoint is mocked separately in
- * news.ts.)
+ * `/api/news` returns `NewsListResponse = { items, count, lookback }` per
+ * ui/src/api/types.ts — NOT { articles, hasMore }. NewsPage does
+ * `setArticles(res.items)`; the wrong shape leaves articles=undefined and
+ * crashes the page on `[...articles].reverse()` in render.
  */
-
-const DEMO_ARTICLES = [
-  {
-    id: 'demo-news-1',
-    title: 'Fed holds rates steady; dot plot signals one cut in 2025',
-    source: 'Reuters',
-    url: 'https://example.com/news/fed-holds',
-    publishedAt: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(),
-    summary: 'The Federal Reserve kept its benchmark rate unchanged...',
-    tickers: ['SPY', 'TLT'],
-  },
-  {
-    id: 'demo-news-2',
-    title: 'NVIDIA unveils next-gen Blackwell Ultra accelerators',
-    source: 'Bloomberg',
-    url: 'https://example.com/news/nvidia-blackwell',
-    publishedAt: new Date(Date.now() - 1000 * 60 * 60 * 6).toISOString(),
-    summary: 'NVIDIA announced its Blackwell Ultra line...',
-    tickers: ['NVDA'],
-  },
-]
-
 export const newsListHandlers = [
-  http.get('/api/news', () => {
-    return HttpResponse.json({ articles: DEMO_ARTICLES, hasMore: false })
+  http.get('/api/news', ({ request }) => {
+    const lookback = new URL(request.url).searchParams.get('lookback') ?? '24h'
+    const body: NewsListResponse = {
+      items: demoNewsArticles,
+      count: demoNewsArticles.length,
+      lookback,
+    }
+    return HttpResponse.json(body)
   }),
 ]

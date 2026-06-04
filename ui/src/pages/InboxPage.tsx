@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { formatRelativeTime } from '../lib/intl'
 import { ArrowRight, MessageSquare, Trash2 } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
 import { MarkdownContent } from '../components/MarkdownContent'
@@ -170,7 +171,7 @@ function Detail({ entry, onDelete }: { entry: InboxEntry; onDelete: () => void }
         <span className="text-[11px] text-text-muted/70 tabular-nums ml-auto">
           {formatAbsolute(entry.ts)}
           <span className="mx-1.5 text-text-muted/40">·</span>
-          {formatRelative(entry.ts)}
+          {formatRelativeTime(entry.ts)}
         </span>
         <button
           type="button"
@@ -321,10 +322,3 @@ function formatAbsolute(ts: number): string {
   })
 }
 
-function formatRelative(ts: number): string {
-  const diff = Date.now() - ts
-  if (diff < 60_000) return `${Math.floor(diff / 1000)}s ago`
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
-  return `${Math.floor(diff / 86_400_000)}d ago`
-}

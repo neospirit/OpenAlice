@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { formatRelativeTime } from '../../lib/intl';
 import type { ReactElement } from 'react';
 import { MessageSquare } from 'lucide-react';
 
@@ -53,7 +54,7 @@ export function ResumeCta(props: ResumeCtaProps): ReactElement {
             </span>
             <div className="resume-cta-card-title">
               <span className="resume-cta-name">{r.name}</span>
-              <span className="resume-cta-state">paused · {relativeTime(r.lastActiveAt)}</span>
+              <span className="resume-cta-state">paused · {formatRelativeTime(r.lastActiveAt)}</span>
             </div>
           </div>
 
@@ -173,12 +174,3 @@ function absoluteTime(iso: string): string {
   return t.toLocaleString();
 }
 
-export function relativeTime(iso: string): string {
-  const t = new Date(iso).getTime();
-  if (!Number.isFinite(t)) return '';
-  const dMs = Date.now() - t;
-  if (dMs < 60_000) return 'just now';
-  if (dMs < 3_600_000) return `${Math.floor(dMs / 60_000)} min ago`;
-  if (dMs < 86_400_000) return `${Math.floor(dMs / 3_600_000)} hours ago`;
-  return `${Math.floor(dMs / 86_400_000)} days ago`;
-}

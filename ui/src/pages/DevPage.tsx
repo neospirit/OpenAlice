@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { PageHeader } from '../components/PageHeader'
 import { Spinner, EmptyState } from '../components/StateViews'
+import { getIntlLocale } from '../lib/intl'
 import { useToast } from '../components/Toast'
 import { LogsPage } from './LogsPage'
 import { SimulatorPage } from './SimulatorPage'
@@ -182,7 +183,7 @@ function SnapshotRow({ snapshot: s, expanded, onToggle, onDelete }: {
         </td>
         <td className="px-3 py-2 text-right text-text">{s.positions.length}</td>
         <td className="px-3 py-2 text-right text-text tabular-nums">
-          ${Number(s.account.netLiquidation).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          ${Number(s.account.netLiquidation).toLocaleString(getIntlLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
         </td>
         <td className="px-3 py-2 text-right" onClick={e => e.stopPropagation()}>
           {confirming ? (
@@ -210,8 +211,8 @@ function SnapshotRow({ snapshot: s, expanded, onToggle, onDelete }: {
             <div className="space-y-2">
               {/* Account metrics */}
               <div className="flex gap-4 text-[11px]">
-                <span className="text-text-muted">Cash: <span className="text-text">${Number(s.account.totalCashValue).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span></span>
-                <span className="text-text-muted">Unrealized PnL: <span className={Number(s.account.unrealizedPnL) >= 0 ? 'text-green' : 'text-red'}>{Number(s.account.unrealizedPnL) >= 0 ? '+' : ''}${Number(s.account.unrealizedPnL).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span></span>
+                <span className="text-text-muted">Cash: <span className="text-text">${Number(s.account.totalCashValue).toLocaleString(getIntlLocale(), { minimumFractionDigits: 2 })}</span></span>
+                <span className="text-text-muted">Unrealized PnL: <span className={Number(s.account.unrealizedPnL) >= 0 ? 'text-green' : 'text-red'}>{Number(s.account.unrealizedPnL) >= 0 ? '+' : ''}${Number(s.account.unrealizedPnL).toLocaleString(getIntlLocale(), { minimumFractionDigits: 2 })}</span></span>
                 {s.account.baseCurrency && <span className="text-text-muted">Base: <span className="text-text">{s.account.baseCurrency}</span></span>}
               </div>
               {/* Positions detail */}

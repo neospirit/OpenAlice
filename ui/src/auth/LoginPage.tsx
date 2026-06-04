@@ -13,8 +13,10 @@
 import { useState, useRef, useEffect, type FormEvent } from 'react'
 import { useAuth } from './AuthContext'
 import { login } from './api'
+import { useTranslation } from 'react-i18next'
 
 export function LoginPage() {
+  const { t } = useTranslation()
   const { refresh } = useAuth()
   const [token, setToken] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -29,7 +31,7 @@ export function LoginPage() {
     setBusy(true); setError(null)
     const result = await login(token.trim())
     if (!result.ok) {
-      setError(result.error ?? 'Login failed')
+      setError(result.error ?? t('auth.loginFailed'))
       setBusy(false)
       return
     }
@@ -40,9 +42,9 @@ export function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-bg px-4">
       <div className="w-full max-w-[400px] rounded-lg border border-border bg-surface px-6 py-7 shadow-sm">
-        <h1 className="text-[18px] font-semibold text-text mb-1">Sign in to OpenAlice</h1>
+        <h1 className="text-[18px] font-semibold text-text mb-1">{t('auth.heading')}</h1>
         <p className="text-[12px] text-text-muted leading-relaxed mb-5">
-          Paste the admin token shown on first launch.
+          {t('auth.instruction')}
           {' '}
           <span className="text-text-faint">
             Find it in the backend logs after <code className="font-mono">pnpm dev</code> /
@@ -54,7 +56,7 @@ export function LoginPage() {
         <form onSubmit={onSubmit} className="space-y-3">
           <div>
             <label className="block text-[11px] uppercase tracking-wide text-text-muted mb-1">
-              Admin token
+              {t('auth.adminTokenLabel')}
             </label>
             <input
               ref={inputRef}
@@ -79,7 +81,7 @@ export function LoginPage() {
             disabled={busy || !token.trim()}
             className="btn-primary w-full justify-center"
           >
-            {busy ? 'Signing in…' : 'Sign in'}
+            {busy ? t('auth.signingIn') : t('auth.signIn')}
           </button>
         </form>
       </div>
@@ -88,10 +90,11 @@ export function LoginPage() {
 }
 
 export function NoTokenPage() {
+  const { t } = useTranslation()
   return (
     <div className="min-h-screen flex items-center justify-center bg-bg px-4">
       <div className="w-full max-w-[460px] rounded-lg border border-border bg-surface px-6 py-7">
-        <h1 className="text-[18px] font-semibold text-text mb-2">No admin token configured</h1>
+        <h1 className="text-[18px] font-semibold text-text mb-2">{t('auth.noTokenHeading')}</h1>
         <p className="text-[13px] text-text leading-relaxed mb-3">
           The backend did not generate <code className="font-mono">data/config/auth.json</code>.
           This usually means bootstrap was skipped via <code className="font-mono">OPENALICE_DISABLE_AUTH=1</code>,

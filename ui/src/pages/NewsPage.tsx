@@ -1,17 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
+import { formatRelativeTime } from '../lib/intl'
 import { api, type NewsArticle } from '../api'
 import { PageHeader } from '../components/PageHeader'
 import { EmptyState } from '../components/StateViews'
 
 // ==================== Helpers ====================
 
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime()
-  if (diff < 60_000) return 'just now'
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
-  return `${Math.floor(diff / 86_400_000)}d ago`
-}
 
 const LOOKBACK_OPTIONS = [
   { value: '1h', label: '1 hour' },
@@ -43,7 +37,7 @@ function ArticleRow({ article }: { article: NewsArticle }) {
                 {article.source}
               </span>
             )}
-            <span className="text-[11px] text-text-muted">{timeAgo(article.time)}</span>
+            <span className="text-[11px] text-text-muted">{formatRelativeTime(article.time)}</span>
             {article.categories && (
               <span className="text-[11px] text-text-muted/50 truncate">{article.categories}</span>
             )}

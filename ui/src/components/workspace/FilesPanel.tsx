@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { formatRelativeTime } from '../../lib/intl';
 import type { ReactElement } from 'react';
 
 import { listFiles, type DirListing, type FileEntry } from './api';
@@ -111,8 +112,8 @@ function iconFor(e: FileEntry): string {
 }
 
 function formatMeta(e: FileEntry): string {
-  if (e.kind !== 'file' || e.sizeBytes === null) return relTime(e.mtime);
-  return `${formatSize(e.sizeBytes)} · ${relTime(e.mtime)}`;
+  if (e.kind !== 'file' || e.sizeBytes === null) return formatRelativeTime(e.mtime);
+  return `${formatSize(e.sizeBytes)} · ${formatRelativeTime(e.mtime)}`;
 }
 
 function formatSize(n: number): string {
@@ -122,12 +123,3 @@ function formatSize(n: number): string {
   return `${(n / (1024 * 1024 * 1024)).toFixed(1)}G`;
 }
 
-function relTime(iso: string): string {
-  const t = new Date(iso).getTime();
-  if (!Number.isFinite(t)) return '';
-  const dMs = Date.now() - t;
-  if (dMs < 60_000) return 'now';
-  if (dMs < 3_600_000) return `${Math.floor(dMs / 60_000)}m`;
-  if (dMs < 86_400_000) return `${Math.floor(dMs / 3_600_000)}h`;
-  return `${Math.floor(dMs / 86_400_000)}d`;
-}

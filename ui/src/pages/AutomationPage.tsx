@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { formatRelativeTime, getIntlLocale } from '../lib/intl'
 import { api, type AppConfig, type CronJob, type CronSchedule } from '../api'
 import { Toggle } from '../components/Toggle'
 import { SaveIndicator } from '../components/SaveIndicator'
@@ -29,19 +30,11 @@ const SECTION_DESCRIPTION: Record<AutomationSection, string> = {
 
 function formatDateTime(ts: number): string {
   const d = new Date(ts)
-  const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-  const time = d.toLocaleTimeString('en-US', { hour12: false })
+  const date = d.toLocaleDateString(getIntlLocale(), { month: 'short', day: 'numeric' })
+  const time = d.toLocaleTimeString(getIntlLocale(), { hour12: false })
   return `${date} ${time}`
 }
 
-function timeAgo(ts: number | null): string {
-  if (!ts) return '-'
-  const diff = Date.now() - ts
-  if (diff < 60_000) return `${Math.floor(diff / 1000)}s ago`
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
-  return `${Math.floor(diff / 86_400_000)}d ago`
-}
 
 function scheduleLabel(s: CronSchedule): string {
   switch (s.kind) {
@@ -500,7 +493,7 @@ function CronJobCard({ job, onToggle, onRunNow, onDelete }: {
             <pre className="inline text-text whitespace-pre-wrap break-all">{job.payload}</pre>
           </div>
           <div className="flex gap-4 text-text-muted">
-            <span>Last run: {job.state.lastRunAtMs ? `${timeAgo(job.state.lastRunAtMs)} (${formatDateTime(job.state.lastRunAtMs)})` : 'never'}</span>
+            <span>Last run: {job.state.lastRunAtMs ? `${formatRelativeTime(job.state.lastRunAtMs)} (${formatDateTime(job.state.lastRunAtMs)})` : 'never'}</span>
             <span>Status: {job.state.lastStatus ?? 'n/a'}</span>
             <span>Created: {formatDateTime(job.createdAt)}</span>
           </div>

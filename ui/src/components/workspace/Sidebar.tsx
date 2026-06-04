@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { formatRelativeTime } from '../../lib/intl';
 import type { ReactElement } from 'react';
 import { Cpu, LayoutGrid, Library, Sparkles, Terminal, type LucideIcon } from 'lucide-react';
 
@@ -243,7 +244,7 @@ export function WorkspaceRow(props: WorkspaceRowProps): ReactElement {
             title={hasRunning ? `${w.sessions.filter((s) => s.state === 'running').length} running` : 'idle'}
           />
           <span className="sidebar-tag">{w.tag}</span>
-          <span className="sidebar-meta">{relativeTime(w.createdAt)}</span>
+          <span className="sidebar-meta">{formatRelativeTime(w.createdAt)}</span>
         </button>
         {w.agents.length > 0 && (
           <div className="sidebar-spawn-wrap">
@@ -388,12 +389,3 @@ export function SessionRow(props: SessionRowProps): ReactElement {
   );
 }
 
-function relativeTime(iso: string): string {
-  const t = new Date(iso).getTime();
-  if (!Number.isFinite(t)) return '';
-  const dMs = Date.now() - t;
-  if (dMs < 60_000) return 'just now';
-  if (dMs < 3_600_000) return `${Math.floor(dMs / 60_000)}m`;
-  if (dMs < 86_400_000) return `${Math.floor(dMs / 3_600_000)}h`;
-  return `${Math.floor(dMs / 86_400_000)}d`;
-}

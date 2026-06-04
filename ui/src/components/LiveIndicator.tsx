@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { formatRelativeTime } from '../lib/intl'
 
 interface LiveIndicatorProps {
   /** Pass `null` to render the pulse without a timestamp (i.e. before the
@@ -26,7 +27,7 @@ export function LiveIndicator({ lastUpdated, hideDot, className }: LiveIndicator
     return () => clearInterval(id)
   }, [])
 
-  const ago = lastUpdated ? formatAgo(lastUpdated) : '—'
+  const ago = lastUpdated ? formatRelativeTime(lastUpdated) : '—'
 
   return (
     <span className={`inline-flex items-center gap-1.5 text-[11px] text-text-muted ${className ?? ''}`}>
@@ -36,12 +37,4 @@ export function LiveIndicator({ lastUpdated, hideDot, className }: LiveIndicator
       <span className="tabular-nums">updated {ago}</span>
     </span>
   )
-}
-
-function formatAgo(d: Date): string {
-  const sec = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000))
-  if (sec < 5) return 'just now'
-  if (sec < 60) return `${sec}s ago`
-  if (sec < 3600) return `${Math.floor(sec / 60)}m ago`
-  return `${Math.floor(sec / 3600)}h ago`
 }

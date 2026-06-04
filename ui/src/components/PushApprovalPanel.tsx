@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { formatRelativeTime, getIntlLocale } from '../lib/intl'
 import { api } from '../api'
 import { isUnsetDecimal } from '../lib/format'
 import type { TradingAccount, WalletStatus, WalletPushResult, WalletCommitLog } from '../api/types'
@@ -38,7 +39,7 @@ function fmtNum(n: number | string | undefined | null): string {
   if (!Number.isFinite(n)) return String(n)
   const rounded = n.toFixed(8).replace(/\.?0+$/, '')
   const [intPart, decPart] = rounded.split('.')
-  const withCommas = Number(intPart).toLocaleString('en-US')
+  const withCommas = Number(intPart).toLocaleString(getIntlLocale())
   return decPart ? `${withCommas}.${decPart}` : withCommas
 }
 
@@ -72,17 +73,6 @@ function formatOp(op: WalletStatus['staged'][number]): { text: string; side?: 'b
     default:
       return { text: op.action }
   }
-}
-
-/** Relative time string. */
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime()
-  const mins = Math.floor(diff / 60000)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
-  const hours = Math.floor(mins / 60)
-  if (hours < 24) return `${hours}h ago`
-  return `${Math.floor(hours / 24)}d ago`
 }
 
 /** Status badge color. */
@@ -357,7 +347,7 @@ export function PushApprovalPanel() {
                     <div key={commit.hash} className="group px-2 py-1.5 rounded hover:bg-bg-secondary/50 transition-colors">
                       <div className="flex items-center gap-2">
                         <span className="text-[10px] font-mono text-text-muted/50">{commit.hash}</span>
-                        <span className="text-[10px] text-text-muted/40">{timeAgo(commit.timestamp)}</span>
+                        <span className="text-[10px] text-text-muted/40">{formatRelativeTime(commit.timestamp)}</span>
                       </div>
                       <div className="text-xs text-text mt-0.5 leading-snug">{commit.message}</div>
                       {commit.operations.length > 0 && (

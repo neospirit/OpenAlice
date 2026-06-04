@@ -2,6 +2,7 @@ import { Fragment, useState, useEffect, useCallback, useMemo } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import type { ViewSpec } from '../tabs/types'
 import { api } from '../api'
+import { getIntlLocale } from '../lib/intl'
 import type { UTAConfig, BrokerPreset, AccountInfo, Position, BrokerHealthInfo, UTASnapshotSummary, EquityCurvePoint } from '../api/types'
 import { useTradingConfig } from '../hooks/useTradingConfig'
 import { useAccountHealth } from '../hooks/useAccountHealth'
@@ -401,9 +402,9 @@ function PositionsSection({ positions, onCloseClick }: {
                           )}
                         </div>
                         <div className="flex items-center gap-3 tabular-nums">
-                          <span className="text-text">{groupCcy ? fmt(sumValue, groupCcy) : `$${sumValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}</span>
+                          <span className="text-text">{groupCcy ? fmt(sumValue, groupCcy) : `$${sumValue.toLocaleString(getIntlLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}</span>
                           <span className={sumPnl >= 0 ? 'text-green' : 'text-red'}>
-                            {groupCcy ? fmtPnl(sumPnl, groupCcy) : `${sumPnl >= 0 ? '+' : ''}${sumPnl.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                            {groupCcy ? fmtPnl(sumPnl, groupCcy) : `${sumPnl >= 0 ? '+' : ''}${sumPnl.toLocaleString(getIntlLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                           </span>
                         </div>
                       </div>
@@ -623,7 +624,7 @@ function formatDayLabel(dayString: string): string {
   const d = new Date(dayString)
   const todayStr = new Date().toDateString()
   const yesterdayStr = new Date(Date.now() - 24 * 60 * 60 * 1000).toDateString()
-  const formatted = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+  const formatted = d.toLocaleDateString(getIntlLocale(), { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
   if (dayString === todayStr) return `${formatted} · today`
   if (dayString === yesterdayStr) return `${formatted} · yesterday`
   return formatted
@@ -631,5 +632,5 @@ function formatDayLabel(dayString: string): string {
 
 function formatTime(timestamp: string): string {
   const d = new Date(timestamp)
-  return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
+  return d.toLocaleTimeString(getIntlLocale(), { hour: '2-digit', minute: '2-digit', hour12: false })
 }

@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { formatRelativeTime } from '../../lib/intl'
 import { ArrowUpCircle, ChevronRight, Cpu, GitBranch, ScrollText, Settings, Sparkles, Terminal, type LucideIcon } from 'lucide-react'
 import type { GitLogEntry, Workspace } from './api'
 
@@ -26,16 +27,6 @@ function AgentGlyph({ agent }: { agent: string }) {
   return <span aria-hidden="true" className="text-[11px] font-mono">·</span>
 }
 
-function relativeTime(ms: number): string {
-  const diff = Math.max(0, Date.now() - ms)
-  const m = Math.floor(diff / 60_000)
-  if (m < 1) return 'just now'
-  if (m < 60) return `${m}m ago`
-  const h = Math.floor(m / 60)
-  if (h < 24) return `${h}h ago`
-  const d = Math.floor(h / 24)
-  return `${d}d ago`
-}
 
 interface Props {
   workspace: Workspace
@@ -97,7 +88,7 @@ export function OverviewCard({
             {w.tag}
           </h3>
           <p className="text-[11px] text-text-muted">
-            Active {relativeTime(lastActivityMs)}
+            Active {formatRelativeTime(lastActivityMs)}
           </p>
         </div>
         {w.upgradeAvailable && w.template && (

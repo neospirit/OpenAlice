@@ -4,7 +4,8 @@ import { MessageSquare } from 'lucide-react';
 
 import type { SessionRecord } from './api';
 import { FilesPanel } from './FilesPanel';
-import { ResumeCta, prefixOf, relativeTime } from './ResumeCta';
+import { ResumeCta, prefixOf } from './ResumeCta';
+import { formatRelativeTime } from '../../lib/intl';
 import { TerminalView, type KeyMap } from './Terminal';
 import { useIsDesktop } from '../../live/use-is-desktop';
 import { useWorkspaceSidePanels } from '../../live/workspace-side-panels';
@@ -228,7 +229,7 @@ function SessionCard(props: {
         <span className="workspace-empty-card-name">{r.name}</span>
         <span className="workspace-empty-card-state">
           {isPaused ? 'paused · ' : 'active · '}
-          {relativeTime(r.lastActiveAt)}
+          {formatRelativeTime(r.lastActiveAt)}
         </span>
       </div>
       <button

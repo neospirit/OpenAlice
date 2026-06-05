@@ -114,6 +114,16 @@ describe('injectWorkspaceContext — MCP', () => {
   it('does not write .mcp.json when injectMcp is false', async () => {
     await injectWorkspaceContext({ template: makeTemplate({ injectMcp: false }), wsId: 'ws-abc', dir });
     expect(existsSync(join(dir, '.mcp.json'))).toBe(false);
+    // No tools injected → no Pi bridge either.
+    expect(existsSync(join(dir, '.pi/extensions/openalice-bridge.ts'))).toBe(false);
+  });
+
+  it('writes the Pi MCP bridge extension when injecting MCP (Pi has no native MCP)', async () => {
+    await injectWorkspaceContext({ template: makeTemplate({ injectMcp: true }), wsId: 'ws-abc', dir });
+    const bridge = await read('.pi/extensions/openalice-bridge.ts');
+    expect(bridge).toContain('openalice-bridge');
+    expect(bridge).toContain('registerTool');
+    expect(bridge).toContain('OPENALICE_MCP_URL');
   });
 });
 

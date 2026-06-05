@@ -107,6 +107,7 @@ describe('chat workspace create: bootstrap → inject → commit', () => {
       '.claude/skills/scan-value-chain/SKILL.md',
       '.agents/skills/scan-value-chain/SKILL.md',
       '.pi/skills/scan-value-chain/SKILL.md',
+      '.pi/extensions/openalice-bridge.ts',
     ]) {
       expect(existsSync(join(dir, rel)), rel).toBe(true);
     }

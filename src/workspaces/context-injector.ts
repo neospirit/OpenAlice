@@ -91,6 +91,14 @@ export async function injectWorkspaceContext(opts: {
   if (template.injectMcp) {
     const json = template.injectMcp === 'inbox' ? MCP_JSON_INBOX_ONLY : MCP_JSON;
     await writeWorkspaceFile(dir, '.mcp.json', json.replaceAll('__WS_ID__', wsId));
+    // Pi has no native MCP, so `.mcp.json` is invisible to it. Give Pi the same
+    // tool surface via our bridge extension: it reads OPENALICE_MCP_URL /
+    // AQ_WS_ID from the spawn env (the same values `.mcp.json`'s placeholder
+    // resolves at spawn) and registers OpenAlice's MCP tools as native Pi tools.
+    // Pi auto-discovers `.pi/extensions/`. Verified live: registers the full
+    // 47-tool surface (incl. trading) from the global server.
+    const piBridge = await readFile(defaultPath('pi', 'openalice-bridge.ts'), 'utf8');
+    await writeWorkspaceFile(dir, '.pi/extensions/openalice-bridge.ts', piBridge);
   }
 
   if (template.injectPersona) {

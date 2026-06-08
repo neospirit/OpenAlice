@@ -76,18 +76,31 @@ export const credentialSchema = z.object({
   /** Present for api-key credentials; absent for subscription credentials. */
   apiKey: z.string().optional(),
   /**
-   * Optional region / custom endpoint. Normalized at the schema so an empty
-   * string collapses to `undefined` — the dedup predicate compares baseUrl with
-   * `===`, so an un-normalized `''` would fail to match the `undefined` form and
-   * duplicate one logical credential. (LLM/CLI callers emit `""` for unset
-   * fields — see feedback_optional_empty_string.) Enforced here, not only at
-   * call sites, since `.parse()` runs inside add/writeCredential.
+   * The wire shapes this key can speak, each with its endpoint baseUrl (''/absent
+   * = the shape's official endpoint). A provider exposes the SAME key behind
+   * several incompatible shapes that differ only by endpoint (GLM: anthropic at
+   * /api/anthropic, openai-chat at /api/paas/v4), so one credential declares all
+   * of them — "wire capabilities" — and injection picks the one the target agent
+   * speaks. Fill the key once.
    */
+  wires: z.record(credentialWireShapeEnum, z.string()).optional(),
+  /** @deprecated legacy single-endpoint fields — read via `credentialWires()`. */
   baseUrl: z.string().trim().transform((s) => s || undefined).optional(),
-  /** Which wire protocol the endpoint speaks (disambiguates same-baseUrl shapes). */
+  /** @deprecated legacy single wire shape — superseded by `wires`. */
   wireShape: credentialWireShapeEnum.optional(),
 })
 export type Credential = z.infer<typeof credentialSchema>
+
+/**
+ * The wire→baseUrl map for a credential, tolerating legacy creds that still
+ * carry the flat `{baseUrl, wireShape}` instead of `wires`. No migration needed:
+ * old creds are upgraded transparently on read.
+ */
+export function credentialWires(cred: Credential): Partial<Record<CredentialWireShape, string>> {
+  if (cred.wires && Object.keys(cred.wires).length > 0) return cred.wires
+  if (cred.wireShape) return { [cred.wireShape]: cred.baseUrl ?? '' }
+  return {}
+}
 
 const baseProfileFields = {
   /** Preset ID this profile was created from (for constraint enforcement on edit). */
@@ -817,13 +830,15 @@ export async function writeCredential(slug: string, credential: Credential): Pro
 }
 
 /**
- * Add a credential to the central store, deduping by vendor/authType/apiKey/
- * baseUrl (an identical credential reuses its existing slug). Returns the slug.
+ * Add a credential to the central store. Dedups by {vendor, authType, apiKey} —
+ * one key is one account, regardless of how many wires/endpoints it can drive —
+ * so re-adding a key you already have (even with a different/newer wire set)
+ * reuses the slug and UPGRADES its wires in place rather than duplicating.
+ * Returns the slug.
  *
  * Standalone counterpart to `extractCredentialFromProfile` for credentials that
  * don't come from a profile — e.g. the workspace AI-config modal's "save to
- * Alice" path, where a hand-entered provider is solidified into the central
- * store so other workspaces (and future scheduling) can reuse it.
+ * Alice" path.
  */
 export async function addCredential(credential: Credential): Promise<string> {
   const config = await readAIProviderConfig()
@@ -831,11 +846,15 @@ export async function addCredential(credential: Credential): Promise<string> {
   const match = Object.entries(config.credentials).find(([, c]) =>
     c.vendor === validated.vendor &&
     c.authType === validated.authType &&
-    c.apiKey === validated.apiKey &&
-    c.baseUrl === validated.baseUrl &&
-    c.wireShape === validated.wireShape,
+    c.apiKey === validated.apiKey,
   )
-  if (match) return match[0]
+  if (match) {
+    // Upgrade the existing record's wires/endpoint in place (don't duplicate).
+    config.credentials[match[0]] = validated
+    await mkdir(CONFIG_DIR, { recursive: true })
+    await writeFile(resolve(CONFIG_DIR, 'ai-provider-manager.json'), JSON.stringify(config, null, 2) + '\n')
+    return match[0]
+  }
   const taken = new Set(Object.keys(config.credentials))
   let n = 1
   while (taken.has(`${validated.vendor}-${n}`)) n++

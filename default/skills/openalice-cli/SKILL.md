@@ -68,9 +68,20 @@ alice news read --id <id-from-the-results>
 
 ```bash
 alice economy fred-series --symbol UNRATE --limit 12
+# v1 indicator — by ticker, vendor data auto-selected (UPPERCASE formula):
 alice analysis indicator --asset equity --formula "RSI(CLOSE('AAPL','1d'),14)"
+# v2 quant — by barId, choose a source (broker bars / a specific vendor) or mix
+# sources; pandas-style script (lowercase; bars() + s.close; indicators return
+# the latest value, no [-1]). Get barIds from `alice trading search`.
+alice analysis quant --script $'s = bars("binance-readonly|BTC/USDT", "1d", count=250)\nrsi(s.close, 14)'
 alice news grep --pattern BTC --meta source=coindesk --meta category=crypto
 ```
+
+> **indicator vs quant:** `indicator` is the quick "what's AAPL's RSI" path
+> (ticker → vendor). `quant` is for source-precise work — chart/compute on the
+> exact broker K-lines you trade, or compare sources (`yfinance|AAPL` vs
+> `ibkr|<conId>`) in one script. Different syntax: `CLOSE('AAPL','1d')` (v1) vs
+> `s.close` over a `bars(...)` binding (v2).
 
 ## Collaboration — `alice-workspace`
 

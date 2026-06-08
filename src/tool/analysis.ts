@@ -34,7 +34,9 @@ function buildContext(
 export function createAnalysisTools(barService: BarService) {
   return {
     calculateIndicator: tool({
-      description: `Calculate technical indicators for any asset using formula expressions.
+      description: `Calculate technical indicators by ticker (vendor data, auto-selected). Quick path for "what's AAPL's RSI".
+
+For a SPECIFIC source (a broker's K-lines matching a held position's symbology), or to mix sources in one expression, use **calculateQuant** instead — it's barId-keyed. This tool (calculateIndicator) is the simpler vendor-default path: plain ticker + asset class, no barId. Note the syntax differs: HERE functions are UPPERCASE in a formula string (SMA(CLOSE('AAPL','1d'),50)); calculateQuant uses a lowercase pandas-style script (sma(s.close, 50)).
 
 Asset classes: "equity" for stocks, "crypto" for cryptocurrencies, "currency" for forex pairs, "commodity" for commodities (use canonical names: gold, crude_oil, copper, etc.).
 

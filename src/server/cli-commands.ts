@@ -66,6 +66,7 @@ export const CLI_EXPORTS: Record<string, CliExport> = {
       },
       analysis: {
         indicator: 'calculateIndicator',
+        quant: 'calculateQuant',
       },
       think: {
         calc: 'calculate',

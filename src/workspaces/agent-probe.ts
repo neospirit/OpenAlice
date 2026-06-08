@@ -50,7 +50,10 @@ export async function probeAnthropic(input: ClaudeProbeInput): Promise<ProbeResu
     : new Anthropic({ apiKey: input.apiKey, baseURL: input.baseUrl });
   const msg = await client.messages.create({
     model: input.model,
-    max_tokens: 32,
+    // Enough room for a reasoning model to finish thinking AND emit a visible
+    // reply on a trivial prompt — a tiny budget gets spent entirely on reasoning,
+    // leaving empty content (the "(empty reply)" the user saw). One-off per Test.
+    max_tokens: 512,
     messages: [{ role: 'user', content: 'Hi' }],
   });
   const text = msg.content
@@ -66,16 +69,20 @@ export async function probeOpenAI(input: CodexProbeInput): Promise<ProbeResult> 
     const resp = await client.responses.create({
       model: input.model,
       input: 'Hi',
-      max_output_tokens: 32,
+      max_output_tokens: 512,
     });
     return { text: resp.output_text ?? '' };
   }
   const resp = await client.chat.completions.create({
     model: input.model,
     messages: [{ role: 'user', content: 'Hi' }],
-    max_tokens: 32,
+    max_tokens: 512,
   });
-  return { text: resp.choices[0]?.message?.content ?? '' };
+  const choice = resp.choices[0]?.message as { content?: string | null; reasoning_content?: string | null } | undefined;
+  // Prefer the final answer; fall back to the reasoning trace so a reasoning
+  // model that returned only thinking still shows it spoke (not "(empty reply)").
+  const text = choice?.content?.trim() || choice?.reasoning_content?.trim() || '';
+  return { text };
 }
 
 /**

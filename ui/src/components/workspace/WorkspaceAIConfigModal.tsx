@@ -553,12 +553,18 @@ export function WorkspaceAIConfigModal({ wsId, onClose }: Props) {
           )}
           {!testing && result?.ok && resultMatchesCurrent && (
             <div className="rounded-md border border-green/40 bg-green/10 text-green text-[12px] px-3 py-2">
-              <div className="font-medium mb-0.5">
-                Test passed — {tab === 'claude' ? 'Anthropic' : tab === 'opencode' || tab === 'pi' ? 'the provider' : 'OpenAI'} replied:
-              </div>
-              <div className="text-text whitespace-pre-wrap break-words font-mono text-[11.5px]">
-                {result.response || '(empty reply)'}
-              </div>
+              {result.response?.trim() ? (
+                <>
+                  <div className="font-medium mb-0.5">
+                    Test passed — {tab === 'claude' ? 'Anthropic' : tab === 'opencode' || tab === 'pi' ? 'the provider' : 'OpenAI'} replied:
+                  </div>
+                  <div className="text-text whitespace-pre-wrap break-words font-mono text-[11.5px]">
+                    {result.response.trim()}
+                  </div>
+                </>
+              ) : (
+                <div className="font-medium">Test passed — provider reachable (returned no text).</div>
+              )}
             </div>
           )}
           {!testing && result && !result.ok && resultMatchesCurrent && (

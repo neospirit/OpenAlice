@@ -441,7 +441,9 @@ function CredentialModal({ mode, cred, presets, onClose, onSaved }: {
               {gate.testing && <p className="text-[12px] text-text-muted">Testing connection…</p>}
               {gate.result && !staleResult && (
                 <div className={`text-[12px] rounded-lg px-3 py-2.5 ${gate.result.ok ? 'bg-green/10 text-green' : 'bg-red/10 text-red'}`}>
-                  {gate.result.ok ? `Connected — “${gate.result.response?.slice(0, 120)}”` : `Failed: ${gate.result.error}`}
+                  {gate.result.ok
+                    ? (gate.result.response?.trim() ? `Connected — “${gate.result.response.trim().slice(0, 120)}”` : 'Connected — provider reachable (returned no text).')
+                    : `Failed: ${gate.result.error}`}
                 </div>
               )}
               {staleResult && (

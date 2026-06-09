@@ -64,6 +64,23 @@ describe('calc-v2 parser', () => {
     expect(d.kind).toBe('syntax')
   })
 
+  it('gives a friendly error for slices (not low-level lexer noise)', () => {
+    const d = diag(() => parse(`s = bars("x","1d")\ns.close[-50:]`)) as { kind: string; suggestion?: string }
+    expect(d.kind).toBe('reflex')
+    expect(d.suggestion).toMatch(/count=/)
+  })
+
+  it('rejects conditionals/ternary with guidance', () => {
+    const d = diag(() => parse(`s = bars("x","1d")\nsma(s.close, 50) if 1 else 2`)) as { kind: string; message: string }
+    expect(d.kind).toBe('reflex')
+    expect(d.message).toMatch(/if.*not supported|pure expression/)
+  })
+
+  it('the end-of-script error does not teach the wrong [-1] syntax', () => {
+    const d = diag(() => parse(`s = bars("x","1d")`)) as { message: string }
+    expect(d.message).not.toMatch(/\[-1\]/)
+  })
+
   it('ignores comments and blank lines', () => {
     const p = parse(`# fetch\ns = bars("x", "1d")  # daily\n\nsma(s.close, 50)`)
     expect(p.bindings).toHaveLength(1)

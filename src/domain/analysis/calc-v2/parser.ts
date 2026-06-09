@@ -18,6 +18,8 @@ import { tokenize, type Token, type TokenType } from './lexer.js'
 import { CalcError } from './errors.js'
 import type { Program, Expr, Assign, Arg, Pos } from './ast.js'
 
+const KEYWORDS = new Set(['if', 'else', 'elif', 'and', 'or', 'not', 'for', 'while', 'in', 'lambda'])
+
 class Parser {
   private toks: Token[]
   private p = 0
@@ -54,13 +56,17 @@ class Parser {
       } else {
         result = this.parseExpr()
       }
+      if (this.at('name') && KEYWORDS.has(this.peek().value)) {
+        const t = this.peek()
+        throw new CalcError({ kind: 'reflex', message: `\`${t.value}\` is not supported — v2 is a pure expression language (no if/else/and/or/loops)`, line: t.pos.line, col: t.pos.col, suggestion: 'Compute the values you need and compare them in your own reasoning, not inside the script.' })
+      }
       if (!this.at('eof')) this.eat('newline')
       this.skipNewlines()
     }
 
     if (result === undefined) {
       const last = this.toks[this.toks.length - 1]
-      throw new CalcError({ kind: 'syntax', message: 'Script must end with a result expression (e.g. `sma(s.close, 50)[-1]`)', line: last.pos.line })
+      throw new CalcError({ kind: 'syntax', message: 'Script must end with a result expression (e.g. `sma(s.close, 50)`)', line: last.pos.line })
     }
     return { type: 'program', bindings, result }
   }
@@ -103,6 +109,10 @@ class Parser {
       } else if (this.at('[')) {
         const pos = this.next().pos
         const index = this.parseExpr()
+        if (this.at(':')) {
+          const t = this.peek()
+          throw new CalcError({ kind: 'reflex', message: 'Slices are not supported', line: t.pos.line, col: t.pos.col, suggestion: 'Use count= on bars(...) to limit the window; index a single value with [-1] / [-n].' })
+        }
         this.eat(']')
         e = { type: 'index', obj: e, index, pos }
       } else if (this.at('(')) {

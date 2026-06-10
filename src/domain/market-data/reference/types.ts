@@ -21,6 +21,7 @@ import type {
 import type { TermStructureBoard } from './term-structure.js'
 import type { ValuationStrip } from './valuation.js'
 import type { GlobalMacroBoard } from './global-macro.js'
+import type { ShippingBoard } from './shipping.js'
 
 /** Envelope on every reference payload. Provider is an explicit label —
  *  same philosophy as the bar layer's sourceId: annotate the source,
@@ -112,4 +113,6 @@ export interface ReferenceDataService {
   /** Cross-country comparison (CPI YoY / short rate / CLI) from OECD —
    *  keyless. Cell-level failures are annotated, total failure throws. */
   globalMacro(): Promise<GlobalMacroBoard>
+  /** Headline-chokepoint transit volumes from IMF PortWatch — keyless. */
+  shipping(): Promise<ShippingBoard>
 }

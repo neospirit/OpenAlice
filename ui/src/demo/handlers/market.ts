@@ -6,7 +6,7 @@ import {
   demoSectorRotation,
 } from '../fixtures/market'
 import type { BarSourceCandidate, BarMeta } from '../../api/market'
-import type { MoversBoard, MoverRow, CalendarBoard, MacroBoard, MacroSeriesCard, TermStructureBoard, ValuationStrip, GlobalMacroBoard } from '../../api/reference'
+import type { MoversBoard, MoverRow, CalendarBoard, MacroBoard, MacroSeriesCard, TermStructureBoard, ValuationStrip, GlobalMacroBoard, ShippingBoard } from '../../api/reference'
 
 const AAPL = 'AAPL'
 
@@ -41,6 +41,7 @@ export const marketHandlers = [
   http.get('/api/reference/term-structure', () => HttpResponse.json(demoTermStructure)),
   http.get('/api/reference/valuation', () => HttpResponse.json(demoValuation)),
   http.get('/api/reference/global-macro', () => HttpResponse.json(demoGlobalMacro)),
+  http.get('/api/reference/shipping', () => HttpResponse.json(demoShipping)),
 
   // ---- federated bars (multi-source K-lines) ----
   // AAPL has two demo sources so the source picker is exercised.
@@ -210,4 +211,25 @@ const demoGlobalMacro: GlobalMacroBoard = {
     gmRow('brazil', 'Brazil', 4.1, 10.2, 100.4),
   ],
   meta: { provider: 'oecd', asOf: '2026-06-10T13:30:00.000Z' },
+}
+
+function shippingCurve(key: string, name: string, baseTons: number, vessels: number): ShippingBoard['curves'][number] {
+  const points = Array.from({ length: 60 }, (_, i) => ({
+    date: new Date(Date.UTC(2026, 3, 9 + i)).toISOString().slice(0, 10),
+    tons: Math.round(baseTons * (1 + Math.sin(i / 7) * 0.18)),
+    vessels: Math.max(1, Math.round(vessels * (1 + Math.sin(i / 7) * 0.15))),
+  }))
+  return { key, name, points, latest: points[points.length - 1] }
+}
+
+const demoShipping: ShippingBoard = {
+  curves: [
+    shippingCurve('suez', 'Suez Canal', 1.6e6, 40),
+    shippingCurve('panama', 'Panama Canal', 0.7e6, 30),
+    shippingCurve('hormuz', 'Strait of Hormuz', 0.9e6, 25),
+    shippingCurve('malacca', 'Malacca Strait', 7.2e6, 185),
+    shippingCurve('bab el-mandeb', 'Bab el-Mandeb Strait', 1.3e6, 35),
+    shippingCurve('cape of good hope', 'Cape of Good Hope', 5.9e6, 95),
+  ],
+  meta: { provider: 'imf-portwatch', asOf: '2026-06-10T13:30:00.000Z' },
 }

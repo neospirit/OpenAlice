@@ -23,6 +23,10 @@ function makeMockEconomyClient(): EconomyClientLike {
     getCPI: vi.fn(async () => []),
     getInterestRates: vi.fn(async () => []),
     getCompositeLeadingIndicator: vi.fn(async () => []),
+    getPortInfo: vi.fn(async () => []),
+    getPortVolume: vi.fn(async () => []),
+    getChokepointInfo: vi.fn(async () => []),
+    getChokepointVolume: vi.fn(async () => []),
   }
 }
 
@@ -317,11 +321,12 @@ describe('createEconomyTools — economyPetroleumStatus', () => {
 })
 
 describe('createEconomyTools — toolset surface', () => {
-  it('exposes the FRED + BLS + EIA + OECD tools', () => {
+  it('exposes the FRED + BLS + EIA + OECD + PortWatch tools', () => {
     const tools = createEconomyTools(makeMockEconomyClient(), makeMockCommodityClient())
     expect(Object.keys(tools).sort()).toEqual([
       'economyBlsSearch',
       'economyBlsSeries',
+      'economyChokepointVolume',
       'economyCountryCpi',
       'economyCountryRates',
       'economyEnergyOutlook',
@@ -330,6 +335,8 @@ describe('createEconomyTools — toolset surface', () => {
       'economyFredSeries',
       'economyLeadingIndicator',
       'economyPetroleumStatus',
+      'economyPortSearch',
+      'economyPortVolume',
     ])
   })
 

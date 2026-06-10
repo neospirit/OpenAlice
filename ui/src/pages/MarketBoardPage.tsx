@@ -7,7 +7,7 @@ import {
   referenceApi,
   type MoversBoard, type MoverRow, type ReferenceMeta, type CalendarBoard,
   type MacroBoard, type MacroSeriesCard, type TermStructureBoard, type TermCurve,
-  type GlobalMacroBoard, type GlobalMacroCell,
+  type GlobalMacroBoard, type GlobalMacroCell, type ShippingBoard, type ShippingCurve,
 } from '../api/reference'
 import { useWorkspace } from '../tabs/store'
 import type { ViewSpec } from '../tabs/types'
@@ -21,6 +21,7 @@ export const MARKET_BOARD_TITLES: Record<BoardKind, string> = {
   macro: 'Macro',
   'term-structure': 'Term Structure',
   'global-macro': 'Global Macro',
+  shipping: 'Shipping',
 }
 
 const REFRESH_MS = 5 * 60 * 1000
@@ -42,6 +43,8 @@ export function MarketBoardPage({ spec }: PageProps) {
       return <TermStructureBoardView />
     case 'global-macro':
       return <GlobalMacroBoardView />
+    case 'shipping':
+      return <ShippingBoardView />
   }
 }
 
@@ -625,6 +628,99 @@ function GlobalCell({ cell, fmt, colorBy }: { cell: GlobalMacroCell; fmt: (v: nu
   if (colorBy === 'cli') color = cell.value >= 100 ? 'text-green' : 'text-red'
   return (
     <td className={`py-1.5 px-3 text-right font-mono ${color}`} title={cell.date ?? ''}>{fmt(cell.value)}</td>
+  )
+}
+
+// ==================== Shipping ====================
+
+function ShippingBoardView() {
+  const { t } = useTranslation()
+  const [data, setData] = useState<ShippingBoard | null>(null)
+  const [updatedAt, setUpdatedAt] = useState<Date | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    const load = async () => {
+      try {
+        const res = await referenceApi.shipping()
+        if (!alive) return
+        setData(res)
+        setUpdatedAt(new Date())
+        setError(null)
+      } catch (err) {
+        if (!alive) return
+        setError(err instanceof Error ? err.message : 'Failed to load')
+      } finally {
+        if (alive) setLoading(false)
+      }
+    }
+    load()
+    const timer = setInterval(load, 60 * 60 * 1000)
+    return () => { alive = false; clearInterval(timer) }
+  }, [])
+
+  return (
+    <div className="flex flex-col flex-1 min-h-0">
+      <PageHeader
+        title={t('market.boardShipping')}
+        description={
+          <>
+            {t('market.shippingSubtitle')}
+            {data && <span className="text-text-muted/50"> · {data.meta.provider}</span>}
+          </>
+        }
+        live={{ lastUpdated: updatedAt }}
+      />
+      <div className="flex-1 overflow-y-auto px-4 md:px-8 py-4 min-h-0">
+        {loading && !data && <div className="text-[13px] text-text-muted">{t('common.loading')}</div>}
+        {error && (
+          <div className="text-[13px] text-red border border-red/30 rounded-md px-3 py-2 bg-red/5">{error}</div>
+        )}
+        {data?.errors && Object.entries(data.errors).map(([key, msg]) => (
+          <div key={key} className="mb-3 text-[13px] text-red border border-red/30 rounded-md px-3 py-2 bg-red/5">{key}: {msg}</div>
+        ))}
+        {data && (
+          <div className="grid gap-3 grid-cols-1 lg:grid-cols-2">
+            {data.curves.map((c) => <ChokepointCard key={c.key} curve={c} />)}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ChokepointCard({ curve }: { curve: ShippingCurve }) {
+  const { t } = useTranslation()
+  const chartData = curve.points
+    .filter((p) => p.tons != null)
+    .map((p) => ({ ...p, mt: (p.tons as number) / 1e6, label: p.date.slice(5) }))
+  return (
+    <div className="border border-border rounded-md bg-bg-secondary/40 px-4 py-3 flex flex-col gap-1.5">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-[13px] font-semibold text-text">{curve.name}</span>
+        {curve.latest && (
+          <span className="text-[11px] text-text-muted">
+            {curve.latest.date} · {curve.latest.vessels ?? '—'} {t('market.shippingVessels')} · {curve.latest.tons != null ? (curve.latest.tons / 1e6).toFixed(2) + 'M t' : '—'}
+          </span>
+        )}
+      </div>
+      <div className="h-28">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+            <XAxis dataKey="label" tick={{ fontSize: 9, fill: '#7d8590' }} stroke="#7d8590" minTickGap={28} />
+            <YAxis tick={{ fontSize: 9, fill: '#7d8590' }} stroke="#7d8590" width={36}
+              tickFormatter={(v: number) => v.toFixed(1)} domain={['auto', 'auto']} />
+            <Tooltip
+              formatter={(v) => [`${Number(v).toFixed(2)}M t`, '']}
+              contentStyle={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', fontSize: 11 }}
+            />
+            <Line type="monotone" dataKey="mt" stroke="var(--color-accent)" strokeWidth={1.25} dot={false} isAnimationActive={false} />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
   )
 }
 

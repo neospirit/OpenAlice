@@ -43,6 +43,15 @@ export function createReferenceRoutes(ctx: EngineContext): Hono {
     }
   })
 
+  // GET /api/reference/shipping → chokepoint transit volumes (IMF PortWatch)
+  app.get('/shipping', async (c) => {
+    try {
+      return c.json(await ctx.reference.shipping())
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 502)
+    }
+  })
+
   // GET /api/reference/global-macro → cross-country CPI / rates / CLI (OECD)
   app.get('/global-macro', async (c) => {
     try {

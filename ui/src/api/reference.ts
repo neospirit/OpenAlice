@@ -139,6 +139,25 @@ export interface GlobalMacroBoard {
   meta: ReferenceMeta
 }
 
+export interface ShippingPoint {
+  date: string
+  tons: number | null
+  vessels: number | null
+}
+
+export interface ShippingCurve {
+  key: string
+  name: string
+  points: ShippingPoint[]
+  latest: ShippingPoint | null
+}
+
+export interface ShippingBoard {
+  curves: ShippingCurve[]
+  errors?: Record<string, string>
+  meta: ReferenceMeta
+}
+
 export const referenceApi = {
   movers: () => fetchJson<MoversBoard>('/api/reference/movers'),
   calendar: () => fetchJson<CalendarBoard>('/api/reference/calendar'),
@@ -146,4 +165,5 @@ export const referenceApi = {
   termStructure: () => fetchJson<TermStructureBoard>('/api/reference/term-structure'),
   valuation: () => fetchJson<ValuationStrip>('/api/reference/valuation'),
   globalMacro: () => fetchJson<GlobalMacroBoard>('/api/reference/global-macro'),
+  shipping: () => fetchJson<ShippingBoard>('/api/reference/shipping'),
 }

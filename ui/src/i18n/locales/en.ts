@@ -197,6 +197,9 @@ export const en = {
     colShortRate: 'Short rate (3M)',
     colCli: 'CLI',
     globalMacroNote: 'CLI: 100 = long-term trend; above and rising = expansion. Hover a cell for the observation date.',
+    boardShipping: 'Shipping',
+    shippingSubtitle: 'Daily transit volume through the headline maritime chokepoints (satellite AIS, weekly updates).',
+    shippingVessels: 'vessels',
   },
   portfolio: {
     overview: 'Overview',

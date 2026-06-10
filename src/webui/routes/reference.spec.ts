@@ -41,6 +41,10 @@ function mkCtx(overrides?: Partial<ReferenceDataService>): EngineContext {
       }],
       meta: { provider: 'oecd', asOf: '2026-06-10T00:00:00.000Z' },
     }),
+    shipping: async () => ({
+      curves: [{ key: 'suez', name: 'Suez Canal', points: [{ date: '2026-06-07', tons: 1.69e6, vessels: 39 }], latest: { date: '2026-06-07', tons: 1.69e6, vessels: 39 } }],
+      meta: { provider: 'imf-portwatch', asOf: '2026-06-10T00:00:00.000Z' },
+    }),
     ...overrides,
   }
   return { reference } as unknown as EngineContext
@@ -88,6 +92,12 @@ describe('reference routes', () => {
     const body = await res.json()
     expect(body.cards[0].id).toBe('pe_month')
     expect(body.meta.provider).toBe('multpl')
+  })
+
+  it('GET /shipping returns the chokepoint curves', async () => {
+    const res = await createReferenceRoutes(mkCtx()).request('/shipping')
+    const body = await res.json()
+    expect(body.curves[0].name).toBe('Suez Canal')
   })
 
   it('GET /movers surfaces a failure as { error } with 502, not a crash', async () => {

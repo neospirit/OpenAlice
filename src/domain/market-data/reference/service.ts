@@ -10,6 +10,7 @@ import { fetchMacroBoard } from './macro.js'
 import { fetchTermStructure, type TermStructureBoard } from './term-structure.js'
 import { fetchValuationStrip, type ValuationStrip } from './valuation.js'
 import { fetchGlobalMacro, type GlobalMacroBoard } from './global-macro.js'
+import { fetchShipping, type ShippingBoard } from './shipping.js'
 
 export interface ReferenceDataDeps {
   equityClient: EquityClientLike
@@ -119,6 +120,10 @@ export function createReferenceData(deps: ReferenceDataDeps): ReferenceDataServi
 
     async globalMacro(): Promise<GlobalMacroBoard> {
       return fetchGlobalMacro(deps.economyClient)
+    },
+
+    async shipping(): Promise<ShippingBoard> {
+      return fetchShipping(deps.economyClient)
     },
   }
 }

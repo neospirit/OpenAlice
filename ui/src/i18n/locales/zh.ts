@@ -186,6 +186,9 @@ export const zh: Resources = {
     colShortRate: '短端利率(3M)',
     colCli: 'CLI',
     globalMacroNote: 'CLI:100 = 长期趋势;高于且上行 = 扩张。悬停单元格可见观测日期。',
+    boardShipping: '航运',
+    shippingSubtitle: '全球关键海运咽喉点的日度过航量(卫星 AIS,每周更新)。',
+    shippingVessels: '艘',
   },
   portfolio: {
     overview: '概览',

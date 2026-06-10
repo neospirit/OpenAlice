@@ -6,6 +6,9 @@
  */
 
 import type { OBBjectResponse } from '../../economy/types/index'
+import type {
+  PortInfoData, PortVolumeData, ChokepointInfoData, ChokepointVolumeData,
+} from '@traderalice/opentypebb'
 import { buildCredentialsHeader } from '../../credential-map'
 
 export class OpenBBEconomyClient {
@@ -182,19 +185,19 @@ export class OpenBBEconomyClient {
   // ==================== Shipping ====================
 
   async getPortInfo(params: Record<string, unknown> = {}) {
-    return this.request('/shipping/port_info', params)
+    return this.request<PortInfoData>('/shipping/port_info', params)
   }
 
   async getPortVolume(params: Record<string, unknown> = {}) {
-    return this.request('/shipping/port_volume', params)
+    return this.request<PortVolumeData>('/shipping/port_volume', params)
   }
 
   async getChokepointInfo(params: Record<string, unknown> = {}) {
-    return this.request('/shipping/chokepoint_info', params)
+    return this.request<ChokepointInfoData>('/shipping/chokepoint_info', params)
   }
 
   async getChokepointVolume(params: Record<string, unknown> = {}) {
-    return this.request('/shipping/chokepoint_volume', params)
+    return this.request<ChokepointVolumeData>('/shipping/chokepoint_volume', params)
   }
 
   // ==================== Internal ====================

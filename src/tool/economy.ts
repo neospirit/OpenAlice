@@ -25,6 +25,7 @@ const FRED_PROVIDER = 'federal_reserve'
 const EIA_PROVIDER = 'eia'
 const BLS_PROVIDER = 'bls'
 const OECD_PROVIDER = 'oecd'
+const IMF_PROVIDER = 'imf'
 
 export function createEconomyTools(
   economyClient: EconomyClientLike,
@@ -273,6 +274,67 @@ country accepts a country slug ("united_states", "china") or a group ("g20", "g7
         if (country !== undefined) params.country = country
         if (start_date !== undefined) params.start_date = start_date
         return await economyClient.getCompositeLeadingIndicator(params)
+      },
+    }),
+
+    economyPortSearch: tool({
+      description: `Search the IMF PortWatch database of 1,802 maritime ports (satellite AIS data, keyless).
+
+Returns port id, name, country, continent, coordinates and total vessel count.
+Use this to find the port id/name, then pass it to economyPortVolume for daily
+trade activity. Omit the query to list the busiest ports globally.`,
+      inputSchema: z.object({
+        port: z.string().optional().describe('Port name fragment or id, e.g. "shanghai", "rotterdam" (omit = busiest ports)'),
+      }).meta({ examples: [{ port: 'shanghai' }] }),
+      execute: async ({ port }) => {
+        const params: Record<string, unknown> = { provider: IMF_PROVIDER }
+        if (port !== undefined) params.port = port
+        return await economyClient.getPortInfo(params)
+      },
+    }),
+
+    economyPortVolume: tool({
+      description: `Daily trade activity for a maritime port (IMF PortWatch satellite AIS, keyless).
+
+Returns daily portcalls (by vessel type) and import/export trade estimates in
+METRIC TONS. Data updates weekly (Tuesdays) with a few days of lag. Use
+economyPortSearch first if unsure of the port name. Note: large harbours are
+split into sub-ports (e.g. "Shanghai (Pudong)" / "Shanghai (Yangshan)") — a
+name query matches all of them.`,
+      inputSchema: z.object({
+        port: z.string().describe('Port name fragment or id, e.g. "shanghai"'),
+        start_date: z.string().optional().describe('Start date YYYY-MM-DD'),
+        end_date: z.string().optional().describe('End date YYYY-MM-DD'),
+      }).meta({ examples: [{ port: 'rotterdam', start_date: '2026-05-01' }] }),
+      execute: async ({ port, start_date, end_date }) => {
+        const params: Record<string, unknown> = { port, provider: IMF_PROVIDER }
+        if (start_date !== undefined) params.start_date = start_date
+        if (end_date !== undefined) params.end_date = end_date
+        return await economyClient.getPortVolume(params)
+      },
+    }),
+
+    economyChokepointVolume: tool({
+      description: `Daily transit volume through maritime chokepoints (IMF PortWatch, keyless).
+
+Returns daily vessel counts (by type) and total trade volume in METRIC TONS for
+the world's 24+ chokepoints. The supply-chain narrative read: Red Sea reroutes
+show up as Suez ↓ / Cape of Good Hope ↑; drought shows as Panama ↓.
+
+Common names that match: "suez", "panama", "hormuz", "malacca", "bab el-mandeb",
+"bosporus", "gibraltar", "dover", "cape of good hope". Omit the chokepoint to
+get ALL of them (use a short date range in that case).`,
+      inputSchema: z.object({
+        chokepoint: z.string().optional().describe('Chokepoint name fragment or id, e.g. "suez" (omit = all)'),
+        start_date: z.string().optional().describe('Start date YYYY-MM-DD'),
+        end_date: z.string().optional().describe('End date YYYY-MM-DD'),
+      }).meta({ examples: [{ chokepoint: 'suez', start_date: '2026-05-01' }] }),
+      execute: async ({ chokepoint, start_date, end_date }) => {
+        const params: Record<string, unknown> = { provider: IMF_PROVIDER }
+        if (chokepoint !== undefined) params.chokepoint = chokepoint
+        if (start_date !== undefined) params.start_date = start_date
+        if (end_date !== undefined) params.end_date = end_date
+        return await economyClient.getChokepointVolume(params)
       },
     }),
   }

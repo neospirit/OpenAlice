@@ -32,6 +32,7 @@ import type {
   FredSearchData, FredSeriesData, FredRegionalData,
   BlsSearchData, BlsSeriesData,
   ConsumerPriceIndexData, CountryInterestRatesData, CompositeLeadingIndicatorData,
+  PortInfoData, PortVolumeData, ChokepointInfoData, ChokepointVolumeData,
 } from '@traderalice/opentypebb'
 
 export interface EquityClientLike {
@@ -107,6 +108,11 @@ export interface EconomyClientLike {
   getCPI(params: Record<string, unknown>): Promise<ConsumerPriceIndexData[]>
   getInterestRates(params?: Record<string, unknown>): Promise<CountryInterestRatesData[]>
   getCompositeLeadingIndicator(params?: Record<string, unknown>): Promise<CompositeLeadingIndicatorData[]>
+  // IMF PortWatch — satellite AIS shipping data (keyless ArcGIS layers).
+  getPortInfo(params?: Record<string, unknown>): Promise<PortInfoData[]>
+  getPortVolume(params?: Record<string, unknown>): Promise<PortVolumeData[]>
+  getChokepointInfo(params?: Record<string, unknown>): Promise<ChokepointInfoData[]>
+  getChokepointVolume(params?: Record<string, unknown>): Promise<ChokepointVolumeData[]>
 }
 
 export interface DerivativesClientLike {

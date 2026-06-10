@@ -186,6 +186,9 @@ export const ja: Resources = {
     colShortRate: '短期金利(3M)',
     colCli: 'CLI',
     globalMacroNote: 'CLI:100 = 長期トレンド。上回り上昇中 = 拡張。セルにホバーで観測日を表示。',
+    boardShipping: '海運',
+    shippingSubtitle: '主要海上チョークポイントの日次通航量(衛星 AIS、週次更新)。',
+    shippingVessels: '隻',
   },
   portfolio: {
     overview: '概要',

@@ -32,8 +32,12 @@ export interface ReferenceMeta {
   provider: string
   /** Server time the payload was assembled (ISO). */
   asOf: string
-  /** Set by the hub when a payload is served from cache. */
+  /** Set when a payload is served from the reference cache (in-process
+   *  today, the hosted hub tomorrow — same field either way). */
   cachedAt?: string
+  /** True when the upstream refresh FAILED and this is the last good
+   *  payload — stale-while-error. Surfaces loudly, never silently. */
+  stale?: boolean
 }
 
 // ==================== Movers board ====================

@@ -2,15 +2,16 @@
 name: openalice-cli
 description: >
   How to reach OpenAlice from your shell via the `alice*` CLIs. Two binaries:
-  `alice` for THIS WORKBENCH's research surfaces (news, cross-asset symbol
-  search, K-line quant analysis, calculator) and `alice-workspace` for AGENT
-  COLLABORATION (push finished work to the user's inbox, track entities). Both
-  print JSON and are discoverable with `--help`. Use for: "search news for the
-  Fed", "find the barId for AAPL", "compute RSI", "push my findings to the
-  inbox", "track this ticker". (LOW-FREQUENCY market data — fundamentals,
-  macro series, calendars, boards — lives on the separate `traderhub` CLI;
-  see the `traderhub` skill. Technical analysis manual: `openalice-quant`.)
-  Discover everything live with `--help` — do NOT guess flags.
+  `alice` for THIS WORKBENCH's research surfaces (the collected-RSS archive,
+  cross-asset symbol search, K-line quant analysis, calculator) and
+  `alice-workspace` for AGENT COLLABORATION (push finished work to the user's
+  inbox, track entities). Both print JSON and are discoverable with `--help`.
+  Use for: "grep the collected feeds for the Fed", "find the barId for AAPL",
+  "compute RSI", "push my findings to the inbox", "track this ticker".
+  (LOW-FREQUENCY market data — fundamentals, macro series, calendars, boards —
+  lives on the separate `traderhub` CLI; see the `traderhub` skill. Technical
+  analysis manual: `openalice-quant`.) Discover everything live with `--help`
+  — do NOT guess flags.
 ---
 
 # Using the `alice*` CLIs
@@ -22,7 +23,7 @@ this workspace** (especially if the MCP tools aren't reliably available to you).
 
 | Binary | For | Groups |
 |---|---|---|
-| `alice` | **Workbench research** (read) | `news`, `market`, `analysis`, `think` |
+| `alice` | **Workbench research** (read) | `rss`, `market`, `analysis`, `think` |
 | `alice-workspace` | **Agent collaboration** | `inbox`, `track` |
 | `traderhub` | **Low-frequency market data** — see the `traderhub` skill | `board`, `equity`, `etf`, `economy`, `global`, `shipping`, `fed`, `crypto`, `index` |
 
@@ -58,19 +59,26 @@ alice market search --query "apple"
 (Fundamentals, ratios, calendars and macro series live on `traderhub` —
 e.g. `traderhub equity profile --symbol AAPL`.)
 
-**Scan news, then read one article by its stable id** (the `id` is stable — you
-do **not** need to repeat `--lookback` to read it):
+**Search the collected-RSS archive, then read one article by its stable id**
+(the `id` is stable — you do **not** need to repeat `--lookback` to read it):
 
 ```bash
-alice news grep --pattern "interest rate" --lookback 2d
-alice news read --id <id-from-the-results>
+alice rss grep --pattern "interest rate" --lookback 2d
+alice rss read --id <id-from-the-results>
 ```
 
 **Metadata filters** (`--meta` is repeatable):
 
 ```bash
-alice news grep --pattern BTC --meta source=coindesk --meta category=crypto
+alice rss grep --pattern BTC --meta source=coindesk --meta category=crypto
 ```
+
+Know what `rss` is: an archive of articles Alice's collector pulled from the
+user's **subscribed feeds** — coverage is exactly the feed list, nothing more.
+It is NOT a general news search. Empty results mean "not in the subscribed
+feeds", not "nothing happened". For news beyond the feeds (frontpages,
+breaking, a specific outlet), say what's missing — and if the workspace has
+the `opencli-reader` skill, that's the route to wider sources.
 
 **Technical / quantitative analysis** lives in its own surface — `alice analysis
 search-bars` (find a K-line barId) then `alice analysis quant` (compute). It's a

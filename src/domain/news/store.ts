@@ -7,7 +7,7 @@
  * - Recover from file on startup
  * - Dedup set survives restarts
  *
- * Implements INewsProvider so globNews/grepNews/readNews tools work.
+ * Implements INewsProvider so globRss/grepRss/readRss tools work.
  */
 
 import { appendFile, readFile, mkdir } from 'node:fs/promises'

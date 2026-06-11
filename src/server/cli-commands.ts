@@ -22,8 +22,8 @@
  *                                            irreversible broker mutations. Not exposed yet.
  *
  * The (group, verb) → internal-tool-name map IS each export's contract,
- * deliberately decoupled from internal tool names: a verb like `news grep` maps
- * to `grepNews`, so internal renames don't break the CLI and vice-versa. Adding
+ * deliberately decoupled from internal tool names: a verb like `rss grep` maps
+ * to `grepRss`, so internal renames don't break the CLI and vice-versa. Adding
  * a row makes the command reachable in every workspace with zero client change —
  * the `alice*` client is manifest-driven, and the gateway only lets an export
  * invoke tools listed in ITS map.
@@ -45,10 +45,14 @@ export const CLI_EXPORTS: Record<string, CliExport> = {
     scope: 'global',
     description: 'Market & research data sources',
     commands: {
-      news: {
-        glob: 'globNews',
-        grep: 'grepNews',
-        read: 'readNews',
+      // `rss`, not `news`: the backing store is the RSS collector's archive —
+      // only what the user's subscribed feeds pulled. Naming it "news" baited
+      // agents into treating it as general news search; the group name should
+      // say what the data actually is.
+      rss: {
+        glob: 'globRss',
+        grep: 'grepRss',
+        read: 'readRss',
       },
       market: {
         search: 'marketSearchForResearch',

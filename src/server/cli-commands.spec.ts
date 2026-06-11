@@ -30,7 +30,7 @@ describe('CLI_EXPORTS — data export (global tools)', () => {
   tc.register(createThinkingTools(), 'thinking')
   tc.register(createMarketSearchTools(any), 'market-search')
   tc.register(createEquityTools(any), 'equity')
-  tc.register(createNewsArchiveTools(any), 'news')
+  tc.register(createNewsArchiveTools(any), 'rss')
   tc.register(createQuantTools(any), 'quant')
   tc.register(createEconomyTools(any, any), 'economy')
 

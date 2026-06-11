@@ -209,7 +209,7 @@ async function main() {
     toolCenter.register(createEtfTools(etfClient), 'etf')
   }
   if (config.news.enabled) {
-    toolCenter.register(createNewsArchiveTools(newsStore), 'news')
+    toolCenter.register(createNewsArchiveTools(newsStore), 'rss')
   }
   // v1 calculateIndicator (createAnalysisTools) is retired from the tool surface
   // — calculateQuant (v2, barId-keyed) supersedes it and the two descriptions

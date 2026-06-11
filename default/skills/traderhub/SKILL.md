@@ -27,7 +27,7 @@ traderhub <group> <verb> --help   # a verb's flags
 ```
 
 **Not here:** K-lines/quotes (realtime — see `alice analysis` + the
-`openalice-quant` skill), news (`alice news`), trading (MCP only).
+`openalice-quant` skill), collected-RSS articles (`alice rss`), trading (MCP only).
 
 ## Reach for a BOARD before assembling primitives
 

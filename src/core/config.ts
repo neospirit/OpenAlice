@@ -258,6 +258,13 @@ const marketDataSchema = z.object({
     biztoc: z.string().optional(),
   }).default({}),
   backend: z.enum(['typebb-sdk', 'openbb-api']).default('typebb-sdk'),
+  /** Hosted reference-data hub (TraderHub). Enabled by default: anonymous
+   *  GETs of public boards, no user data attached; one switch to opt out.
+   *  Self-hosters point baseUrl at their own instance. */
+  hub: z.object({
+    enabled: z.boolean().default(true),
+    baseUrl: z.string().default('https://traderhub.openalice.ai'),
+  }).default({ enabled: true, baseUrl: 'https://traderhub.openalice.ai' }),
 })
 
 const compactionSchema = z.object({

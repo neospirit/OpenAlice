@@ -79,6 +79,17 @@ export function buildCredentialsHeader(
  */
 export function buildSDKCredentials(
   providerKeys: Record<string, string | undefined> | undefined,
+  hub?: { enabled: boolean; baseUrl: string },
 ): Record<string, string> {
-  return applyMapping(providerKeys, sdkKeyMapping)
+  const mapped = applyMapping(providerKeys, sdkKeyMapping)
+  // Hub-proxy sentinel: for origin-centralized keyed providers, a missing
+  // user key becomes `hub:<baseUrl>` — the SDK fetcher swaps the upstream
+  // origin for the TraderHub keyed proxy (which injects its own key) and
+  // keeps its own transforms. User keys always win over the hub.
+  if (hub?.enabled && hub.baseUrl) {
+    for (const field of ['federal_reserve_api_key', 'eia_api_key', 'bls_api_key']) {
+      if (!mapped[field]) mapped[field] = `hub:${hub.baseUrl}`
+    }
+  }
+  return mapped
 }

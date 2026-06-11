@@ -18,6 +18,7 @@ import { SymbolIndex } from './domain/market-data/equity/index.js'
 import { CommodityCatalog } from './domain/market-data/commodity/index.js'
 import { createEquityTools } from './tool/equity.js'
 import { createEtfTools } from './tool/etf.js'
+import { withHubCalendars } from './domain/market-data/hub-data.js'
 import { getSDKExecutor, buildRouteMap, SDKEquityClient, SDKCryptoClient, SDKCurrencyClient, SDKEtfClient, SDKIndexClient, SDKDerivativesClient, SDKCommodityClient, SDKEconomyClient } from './domain/market-data/client/typebb/index.js'
 import type { EquityClientLike, CryptoClientLike, CurrencyClientLike, EtfClientLike, IndexClientLike, DerivativesClientLike, CommodityClientLike, EconomyClientLike } from './domain/market-data/client/types.js'
 import { buildSDKCredentials } from './domain/market-data/credential-map.js'
@@ -154,7 +155,7 @@ async function main() {
   } else {
     const executor = getSDKExecutor()
     const routeMap = buildRouteMap()
-    const credentials = buildSDKCredentials(config.marketData.providerKeys)
+    const credentials = buildSDKCredentials(config.marketData.providerKeys, config.marketData.hub)
     equityClient = new SDKEquityClient(executor, 'equity', providers.equity, credentials, routeMap)
     cryptoClient = new SDKCryptoClient(executor, 'crypto', providers.crypto, credentials, routeMap)
     currencyClient = new SDKCurrencyClient(executor, 'currency', providers.currency, credentials, routeMap)
@@ -187,6 +188,10 @@ async function main() {
     vendorProviders: config.marketData.providers,
   })
 
+  // Hub-first calendars: tools, CLI and boards all inherit through the
+  // client seam. No-op when the hub is disabled.
+  equityClient = withHubCalendars(equityClient, config.marketData.hub)
+
   // Reference-data contract — board-shaped low-frequency data (movers, macro,
   // calendar, …). Alice's own standard; the future hosted-hub seam.
   const reference = createReferenceData({
@@ -195,6 +200,7 @@ async function main() {
     derivativesClient,
     indexClient,
     equityProvider: config.marketData.providers.equity,
+    hub: config.marketData.hub,
   })
 
   // ==================== Tool Registration ====================

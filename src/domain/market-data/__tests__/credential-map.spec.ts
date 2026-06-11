@@ -71,3 +71,30 @@ describe('two-table contract — divergence is intentional', () => {
     expect(buildSDKCredentials({ fred: 'k' })).toEqual({ federal_reserve_api_key: 'k' })
   })
 })
+
+describe('buildSDKCredentials hub sentinel', () => {
+  const hub = { enabled: true, baseUrl: 'https://hub.test' }
+
+  it('fills missing fred/eia/bls with the hub sentinel', () => {
+    const creds = buildSDKCredentials({}, hub)
+    expect(creds.federal_reserve_api_key).toBe('hub:https://hub.test')
+    expect(creds.eia_api_key).toBe('hub:https://hub.test')
+    expect(creds.bls_api_key).toBe('hub:https://hub.test')
+  })
+
+  it('user keys always win over the hub', () => {
+    const creds = buildSDKCredentials({ fred: 'real-key' }, hub)
+    expect(creds.federal_reserve_api_key).toBe('real-key')
+    expect(creds.eia_api_key).toBe('hub:https://hub.test')
+  })
+
+  it('injects nothing when the hub is disabled or absent', () => {
+    expect(buildSDKCredentials({}, { enabled: false, baseUrl: 'x' })).toEqual({})
+    expect(buildSDKCredentials({})).toEqual({})
+  })
+
+  it('never touches non-hub providers (fmp has no proxy)', () => {
+    const creds = buildSDKCredentials({}, hub)
+    expect(creds.fmp_api_key).toBeUndefined()
+  })
+})

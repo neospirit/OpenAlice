@@ -35,6 +35,9 @@ export interface ReferenceMeta {
   /** Set when a payload is served from the reference cache (in-process
    *  today, the hosted hub tomorrow — same field either way). */
   cachedAt?: string
+  /** Which path served this payload: the hosted hub or a local build.
+   *  Absent only on payloads predating the hub seam. */
+  origin?: 'hub' | 'local'
   /** True when the upstream refresh FAILED and this is the last good
    *  payload — stale-while-error. Surfaces loudly, never silently. */
   stale?: boolean

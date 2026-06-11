@@ -7,6 +7,7 @@
 
 import { amakeRequest } from '../../../core/provider/utils/helpers.js'
 import { EmptyDataError } from '../../../core/provider/utils/errors.js'
+import { resolveKeyedOrigin } from '../../../core/provider/utils/hub-proxy.js'
 
 const FRED_BASE = 'https://api.stlouisfed.org/fred'
 const GEOFRED_BASE = 'https://api.stlouisfed.org/geofred'
@@ -38,9 +39,13 @@ function buildFredUrl(
   apiKey: string,
   base: string = FRED_BASE,
 ): string {
-  const url = new URL(`${base}/${endpoint}`)
+  // `hub:<url>` sentinel → route via the TraderHub keyed proxy (it
+  // injects its own key); path layout under the origin is identical.
+  const { key, origin } = resolveKeyedOrigin(apiKey, 'https://api.stlouisfed.org', 'fred')
+  const tree = base === GEOFRED_BASE ? 'geofred' : 'fred'
+  const url = new URL(`${origin}/${tree}/${endpoint}`)
   url.searchParams.set('file_type', 'json')
-  if (apiKey) url.searchParams.set('api_key', apiKey)
+  if (key) url.searchParams.set('api_key', key)
   for (const [k, v] of Object.entries(params)) {
     if (v !== undefined && v !== null && v !== '') {
       url.searchParams.set(k, String(v))

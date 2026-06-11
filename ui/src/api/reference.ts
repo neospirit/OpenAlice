@@ -14,6 +14,10 @@ export interface ReferenceMeta {
   provider: string
   asOf: string
   cachedAt?: string
+  /** Which path served: the hosted hub or a local build with your keys. */
+  origin?: 'hub' | 'local'
+  /** Upstream refresh failed; this is the last good payload. */
+  stale?: boolean
 }
 
 /** One row of a movers list (gainers / losers / active). */

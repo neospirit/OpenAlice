@@ -79,13 +79,13 @@ export const marketHandlers = [
     }
     return HttpResponse.json(demoMarketAAPL.historical)
   }),
-  http.get('/api/market-data-v1/equity/profile', aaplOnly(demoMarketAAPL.profile)),
+  http.get('/api/market/equity/profile', aaplOnly(demoMarketAAPL.profile)),
   http.get('/api/market-data-v1/equity/price/quote', aaplOnly(demoMarketAAPL.quote)),
-  http.get('/api/market-data-v1/equity/fundamental/metrics', aaplOnly(demoMarketAAPL.metrics)),
-  http.get('/api/market-data-v1/equity/fundamental/ratios', aaplOnly(demoMarketAAPL.ratios)),
-  http.get('/api/market-data-v1/equity/fundamental/balance', aaplOnly(demoMarketAAPL.balance)),
-  http.get('/api/market-data-v1/equity/fundamental/income', aaplOnly(demoMarketAAPL.income)),
-  http.get('/api/market-data-v1/equity/fundamental/cash', aaplOnly(demoMarketAAPL.cash)),
+  http.get('/api/market/equity/metrics', aaplOnly(demoMarketAAPL.metrics)),
+  http.get('/api/market/equity/ratios', aaplOnly(demoMarketAAPL.ratios)),
+  http.get('/api/market/equity/balance', aaplOnly(demoMarketAAPL.balance)),
+  http.get('/api/market/equity/income', aaplOnly(demoMarketAAPL.income)),
+  http.get('/api/market/equity/cash', aaplOnly(demoMarketAAPL.cash)),
 
   http.post('/api/market-data/test-provider', () => HttpResponse.json({ ok: true })),
 ]

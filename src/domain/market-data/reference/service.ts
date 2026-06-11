@@ -13,6 +13,7 @@ import { fetchGlobalMacro, type GlobalMacroBoard } from './global-macro.js'
 import { fetchShipping, type ShippingBoard } from './shipping.js'
 import { fetchFedBoard, type FedBoard } from './fed.js'
 import { cachedBoard } from './cache.js'
+import { createHubFetcher, markLocal, type HubConfig } from './hub.js'
 
 export interface ReferenceDataDeps {
   equityClient: EquityClientLike
@@ -26,6 +27,8 @@ export interface ReferenceDataDeps {
    *  the client routes by its constructed default, so the label is the
    *  REQUESTED provider (same caveat as the bar layer's vendor meta). */
   equityProvider: string
+  /** Hosted-hub config (marketData.hub). Undefined = local-only. */
+  hub?: HubConfig
 }
 
 /** Rows per movers list — enough for a board, small enough to stay snappy. */
@@ -53,7 +56,11 @@ const TTL = {
 } as const
 
 export function createReferenceData(deps: ReferenceDataDeps): ReferenceDataService {
+  const viaHub = createHubFetcher(deps.hub)
+
   const movers = cachedBoard(TTL.movers, async (): Promise<MoversBoard> => {
+    const hub = await viaHub<MoversBoard>('movers')
+    if (hub) return hub
     // One list failing must not kill the board — same resilience rule as
     // the federated search fan-out.
     const [gainers, losers, active, uvGrowth, gTech, smallCaps, uvLarge] = await Promise.allSettled([
@@ -75,11 +82,13 @@ export function createReferenceData(deps: ReferenceDataDeps): ReferenceDataServi
       growthTech: rows(gTech),
       smallCaps: rows(smallCaps),
       undervaluedLarge: rows(uvLarge),
-      meta: { provider: deps.equityProvider, asOf: new Date().toISOString() },
+      meta: { provider: deps.equityProvider, asOf: new Date().toISOString(), origin: 'local' },
     }
   })
 
   const calendarCached = cachedBoard(TTL.calendar, async (): Promise<CalendarBoard> => {
+    const hub = await viaHub<CalendarBoard>('calendar')
+    if (hub) return hub
     const days = CALENDAR_DAYS
     const start = new Date()
     const end = new Date(start.getTime() + days * 24 * 60 * 60 * 1000)
@@ -117,27 +126,35 @@ export function createReferenceData(deps: ReferenceDataDeps): ReferenceDataServi
       dividends: rows(dividends),
       window,
       ...(Object.keys(errors).length ? { errors } : {}),
-      meta: { provider: 'fmp', asOf: new Date().toISOString() },
+      meta: { provider: 'fmp', asOf: new Date().toISOString(), origin: 'local' },
     }
   })
 
-  const macro = cachedBoard(TTL.macro, () => fetchMacroBoard(deps.economyClient))
-  const globalMacro = cachedBoard(TTL.globalMacro, () => fetchGlobalMacro(deps.economyClient))
-  const shipping = cachedBoard(TTL.shipping, () => fetchShipping(deps.economyClient))
-  const fed = cachedBoard(TTL.fed, () => fetchFedBoard(deps.economyClient))
+  const macro = cachedBoard(TTL.macro, async () =>
+    (await viaHub<MacroBoard>('macro')) ?? markLocal(await fetchMacroBoard(deps.economyClient)))
+  const globalMacro = cachedBoard(TTL.globalMacro, async () =>
+    (await viaHub<GlobalMacroBoard>('global-macro')) ?? markLocal(await fetchGlobalMacro(deps.economyClient)))
+  const shipping = cachedBoard(TTL.shipping, async () =>
+    (await viaHub<ShippingBoard>('shipping')) ?? markLocal(await fetchShipping(deps.economyClient)))
+  const fed = cachedBoard(TTL.fed, async () =>
+    (await viaHub<FedBoard>('fed')) ?? markLocal(await fetchFedBoard(deps.economyClient)))
 
-  const termStructure = cachedBoard(TTL.termStructure, () => {
+  const termStructure = cachedBoard(TTL.termStructure, async () => {
+    const hub = await viaHub<TermStructureBoard>('term-structure')
+    if (hub) return hub
     if (!deps.derivativesClient) {
-      return Promise.reject(new Error('Term structure requires the typebb-sdk market-data backend (derivatives client unavailable).'))
+      throw new Error('Term structure requires the typebb-sdk market-data backend (derivatives client unavailable).')
     }
-    return fetchTermStructure(deps.derivativesClient)
+    return markLocal(await fetchTermStructure(deps.derivativesClient))
   })
 
-  const valuation = cachedBoard(TTL.valuation, () => {
+  const valuation = cachedBoard(TTL.valuation, async () => {
+    const hub = await viaHub<ValuationStrip>('valuation')
+    if (hub) return hub
     if (!deps.indexClient) {
-      return Promise.reject(new Error('Valuation strip requires the typebb-sdk market-data backend (index client unavailable).'))
+      throw new Error('Valuation strip requires the typebb-sdk market-data backend (index client unavailable).')
     }
-    return fetchValuationStrip(deps.indexClient)
+    return markLocal(await fetchValuationStrip(deps.indexClient))
   })
 
   return {

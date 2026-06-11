@@ -86,6 +86,7 @@ export function MarketDataPage() {
   const apiUrl = (config.apiUrl as string) || 'http://localhost:6900'
   const providers = (config.providers ?? { equity: 'yfinance', crypto: 'yfinance', currency: 'yfinance', commodity: 'yfinance' }) as Record<string, string>
   const providerKeys = (config.providerKeys ?? {}) as Record<string, string>
+  const hub = (config.hub ?? { enabled: true, baseUrl: 'https://traderhub.openalice.ai' }) as { enabled: boolean; baseUrl: string }
 
   const handleProviderChange = (asset: string, provider: string) => {
     updateConfigImmediate({ providers: { ...providers, [asset]: provider } })
@@ -116,7 +117,13 @@ export function MarketDataPage() {
 
       <div className="flex-1 overflow-y-auto px-4 md:px-8 py-5">
         <div className={`max-w-[880px] mx-auto ${!enabled ? 'opacity-40 pointer-events-none' : ''}`}>
-          {/* Asset Providers — route selection only, no keys */}
+          {/* Data Hub — the primary low-frequency source, zero-key OOTB */}
+          <HubSection
+            hub={hub}
+            onChange={(next) => updateConfigImmediate({ hub: next })}
+          />
+
+          {/* Vendor routing — charts + fallback when the hub is off/uncovered */}
           <AssetProvidersSection
             providers={providers}
             onProviderChange={handleProviderChange}
@@ -153,8 +160,8 @@ function AssetProvidersSection({
 }) {
   return (
     <ConfigSection
-      title="Asset Providers"
-      description="Select a data provider for each asset class. API keys are managed separately below."
+      title="Vendor Routing"
+      description="Per-asset-class vendor for charts (K-lines) and as fallback when the Data Hub is off or doesn't cover an endpoint. Low-frequency data defaults to the hub above."
     >
       <div className="space-y-3">
         {Object.entries(PROVIDER_OPTIONS).map(([asset, options]) => {
@@ -317,5 +324,38 @@ function AdvancedSection({
         </div>
       )}
     </div>
+  )
+}
+
+// ==================== Data Hub ====================
+
+function HubSection({
+  hub,
+  onChange,
+}: {
+  hub: { enabled: boolean; baseUrl: string }
+  onChange: (next: { enabled: boolean; baseUrl: string }) => void
+}) {
+  return (
+    <section className="mb-8">
+      <div className="flex items-center justify-between mb-1">
+        <h2 className="text-[13px] font-semibold">Data Hub</h2>
+        <Toggle size="sm" checked={hub.enabled} onChange={(v) => onChange({ ...hub, enabled: v })} />
+      </div>
+      <p className="text-[12px] text-text-muted mb-3">
+        Boards are served from the hosted TraderHub when available — no API keys needed.
+        Your own keys below are used as fallback when the hub is off or unreachable.
+        Anonymous reads of public data; self-hosters can point this at their own instance.
+      </p>
+      {hub.enabled && (
+        <input
+          type="text"
+          value={hub.baseUrl}
+          onChange={(e) => onChange({ ...hub, baseUrl: e.target.value })}
+          placeholder="https://traderhub.openalice.ai"
+          className="w-full max-w-[420px] px-2.5 py-1.5 bg-bg text-text border border-border rounded-md text-[12px] font-mono outline-none focus:border-accent"
+        />
+      )}
+    </section>
   )
 }

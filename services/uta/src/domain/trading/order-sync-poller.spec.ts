@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
+import Decimal from 'decimal.js'
+import { Order } from '@traderalice/ibkr'
 import { UnifiedTradingAccount } from './UnifiedTradingAccount.js'
-import { MockBroker } from './brokers/mock/index.js'
+import { MockBroker, makeContract } from './brokers/mock/index.js'
 import './contract-ext.js'
 import { startOrderSyncPoller } from './order-sync-poller.js'
 
@@ -63,6 +65,38 @@ describe('order-sync poller', () => {
     await poller.tick() // pending → sync called (even if no transition yet)
     expect(syncSpy).toHaveBeenCalledTimes(1)
     poller.stop()
+  })
+
+  it('external order: observed on the slow lane, then lifecycle handled by the fast lane', async () => {
+    const { uta, broker } = createUTA()
+    const poller = startOrderSyncPoller(() => [uta], { intervalMs: 60_000, observeEveryTicks: 2, log: () => {} })
+
+    // User places a limit order on the exchange directly — git never saw it.
+    const order = new Order()
+    order.action = 'BUY'
+    order.orderType = 'LMT'
+    order.totalQuantity = new Decimal(5)
+    order.lmtPrice = new Decimal(150)
+    const external = await broker.placeOrder(makeContract({ aliceId: 'mock-paper|AAPL' }), order)
+    expect(external.success).toBe(true)
+    expect(uta.getPendingOrderIds()).toHaveLength(0) // git is blind to it
+
+    // Tick 1 = observe pass → squashed [observed] commit, now tracked.
+    await poller.tick()
+    expect(uta.getPendingOrderIds()).toHaveLength(1)
+    const observedCommit = uta.log({ limit: 1 })[0]
+    expect(observedCommit.message).toContain('[observed]')
+    expect(observedCommit.operations[0].change).toContain('external BUY 5')
+
+    // Exchange fills it; tick 2 is a fast-lane pass → fill recorded.
+    broker.setMarkPrice('AAPL', '149')
+    await poller.tick()
+    poller.stop()
+
+    expect(uta.getPendingOrderIds()).toHaveLength(0)
+    const head = uta.log({ limit: 1 })[0]
+    expect(head.message).toContain('[sync]')
+    expect(head.operations[0].status).toBe('filled')
   })
 
   it('one account failing does not stop the others', async () => {

@@ -447,6 +447,20 @@ export class MockBroker implements IBroker {
     this._record('getOrder', [orderId])
     const internal = this._orders.get(orderId)
     if (!internal) return null
+    return this._toOpenOrder(internal)
+  }
+
+  /** All currently-open (Submitted) orders — external-order observation surface. */
+  async getOpenOrders(): Promise<OpenOrder[]> {
+    this._record('getOpenOrders', [])
+    const open: OpenOrder[] = []
+    for (const internal of this._orders.values()) {
+      if (internal.status === 'Submitted') open.push(this._toOpenOrder(internal))
+    }
+    return open
+  }
+
+  private _toOpenOrder(internal: InternalOrder): OpenOrder {
     const orderState = new OrderState()
     orderState.status = internal.status
     if (internal.filledQuantity) {
@@ -456,6 +470,7 @@ export class MockBroker implements IBroker {
       contract: internal.contract,
       order: internal.order,
       orderState,
+      orderId: internal.id,
       ...(internal.avgFillPrice && { avgFillPrice: internal.avgFillPrice.toFixed() }),
     }
   }

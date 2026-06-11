@@ -59,7 +59,7 @@ export function recomputeCostBasisFromCommits(
     for (let i = 0; i < commit.operations.length; i++) {
       const op = commit.operations[i]
       const result = commit.results[i]
-      if (op.action !== 'placeOrder' && op.action !== 'closePosition') continue
+      if (op.action !== 'placeOrder' && op.action !== 'closePosition' && op.action !== 'observeExternalOrder') continue
       if (!result?.orderId) continue
       orderMeta.set(result.orderId, {
         matches: matchesAliceId(op, aliceId),
@@ -138,6 +138,7 @@ function matchesAliceId(op: Operation, aliceId: string): boolean {
   switch (op.action) {
     case 'placeOrder':
     case 'closePosition':
+    case 'observeExternalOrder':
       return op.contract?.aliceId === aliceId
     case 'reconcileBalance':
       return op.aliceId === aliceId
@@ -149,7 +150,8 @@ function matchesAliceId(op: Operation, aliceId: string): boolean {
 /** Determine if a filled op behaves as a buy or sell for cost-basis purposes. */
 function fillDirection(op: Operation): 'buy' | 'sell' {
   switch (op.action) {
-    case 'placeOrder': {
+    case 'placeOrder':
+    case 'observeExternalOrder': {
       const action = (op.order?.action ?? '').toUpperCase()
       return action === 'SELL' ? 'sell' : 'buy'
     }

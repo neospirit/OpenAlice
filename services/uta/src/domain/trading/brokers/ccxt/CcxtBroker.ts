@@ -158,6 +158,7 @@ export class CcxtBroker implements IBroker<CcxtBrokerMeta> {
   private overrides: CcxtExchangeOverrides
   // orderId → ccxtSymbol cache (CCXT needs symbol to cancel)
   private orderSymbolCache = new Map<string, string>()
+  private warnedOpenOrdersUnsupported = false
 
   constructor(config: CcxtBrokerConfig) {
     this.exchangeName = config.exchange
@@ -874,8 +875,40 @@ export class CcxtBroker implements IBroker<CcxtBrokerMeta> {
       contract,
       order,
       orderState: makeOrderState(o.status),
+      ...(o.id && { orderId: String(o.id) }),
       ...(o.average != null && { avgFillPrice: String(o.average) }),
       ...(tpsl && { tpsl }),
+    }
+  }
+
+  /**
+   * All open orders on the account — the surface external-order observation
+   * diffs against. Venue-dependent: some exchanges can't enumerate open
+   * orders without a symbol scope; those degrade to [] with a once-per-
+   * instance warning rather than failing the observation pass.
+   */
+  async getOpenOrders(): Promise<OpenOrder[]> {
+    if (this.keyless) return []
+    this.ensureInit()
+    try {
+      const raw = await this.exchange.fetchOpenOrders()
+      const converted: OpenOrder[] = []
+      for (const o of raw) {
+        // convertCcxtOrder also seeds the orderId→symbol cache, so an
+        // observed external order is immediately syncable.
+        const open = this.convertCcxtOrder(o)
+        if (open) converted.push(open)
+      }
+      return converted
+    } catch (err) {
+      if (!this.warnedOpenOrdersUnsupported) {
+        this.warnedOpenOrdersUnsupported = true
+        console.warn(
+          `CcxtBroker[${this.id}]: fetchOpenOrders unavailable — external-order observation disabled for this account ` +
+          `(${err instanceof Error ? err.message : String(err)})`,
+        )
+      }
+      return []
     }
   }
 

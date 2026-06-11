@@ -26,6 +26,18 @@ export type Operation =
   | { action: 'cancelOrder'; orderId: string; orderCancel?: OrderCancel }
   | { action: 'syncOrders' }
   | {
+      // Wallet-only event: an open order observed on the broker that Alice
+      // never placed (user trading on the exchange app directly). The log is
+      // a faithful record, not the source of final state — untracked orders
+      // are themselves "commits without a message": N of them observed in
+      // one pass get squashed into one [observed] commit. Once recorded with
+      // orderId + submitted status, the regular pending scanner + sync
+      // poller take over their lifecycle (fill / cancel) for free.
+      action: 'observeExternalOrder'
+      contract: Contract
+      order: Order
+    }
+  | {
       // Wallet-only event: bridges the gap between Alice's order log and a
       // broker-reported balance change Alice did not initiate (first-sight
       // bootstrap, external transfer, staking reward, off-platform trade).
@@ -274,6 +286,7 @@ export function getOperationSymbol(op: Operation): string {
     case 'closePosition': return op.contract?.symbol || op.contract?.aliceId || 'unknown'
     case 'cancelOrder': return 'unknown'
     case 'syncOrders': return 'unknown'
+    case 'observeExternalOrder': return op.contract?.symbol || op.contract?.aliceId || 'unknown'
     case 'reconcileBalance': return op.aliceId
   }
 }

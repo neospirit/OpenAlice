@@ -338,6 +338,23 @@ describe('recomputeCostBasisFromCommits — sync fills', () => {
     expect(recomputeCostBasisFromCommits(commits, ALICE_ID)).toBeNull()
   })
 
+  it('attributes a sync fill of an OBSERVED external order at execution price', () => {
+    const order = new Order()
+    order.action = 'BUY'
+    order.totalQuantity = new Decimal(2)
+    const commits = [
+      {
+        ...commit(),
+        operations: [{ action: 'observeExternalOrder' as const, contract: makeContract(ALICE_ID), order }],
+        results: [{ action: 'observeExternalOrder' as const, success: true, orderId: 'ext-1', status: 'submitted' as const }],
+      },
+      syncCommit({ orderId: 'ext-1', status: 'filled', qty: 2, price: 333 }),
+    ]
+    const result = recomputeCostBasisFromCommits(commits, ALICE_ID)!
+    expect(result.qty.toString()).toBe('2')
+    expect(result.avgCost.toString()).toBe('333')
+  })
+
   it('sync-filled SELL reduces the position', () => {
     const sellOrder = new Order()
     sellOrder.action = 'SELL'

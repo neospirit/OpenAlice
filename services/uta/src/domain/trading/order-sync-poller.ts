@@ -21,6 +21,11 @@ export interface OrderSyncPollerOptions {
   /** Poll cadence. Default 10s — fast enough for human-scale awareness,
    *  far below any exchange rate limit given the pending-only gating. */
   intervalMs?: number
+  /** External-order observation runs every Nth tick (default 6 → 60s):
+   *  the slow lane. Observation is for narrative fidelity, not execution
+   *  latency — once observed, an external order's lifecycle moves to the
+   *  fast (pending) lane automatically. */
+  observeEveryTicks?: number
   log?: (msg: string) => void
 }
 
@@ -35,16 +40,34 @@ export function startOrderSyncPoller(
   options: OrderSyncPollerOptions = {},
 ): OrderSyncPoller {
   const intervalMs = options.intervalMs ?? 10_000
+  const observeEveryTicks = options.observeEveryTicks ?? 6
   const log = options.log ?? ((msg: string) => console.log(msg))
   let running = false
+  let tickCount = 0
 
   const tick = async (): Promise<void> => {
     // Re-entrancy guard: a slow broker must not stack concurrent passes.
     if (running) return
     running = true
+    tickCount++
+    // Slow lane fires on the FIRST tick (catch pre-existing external orders
+    // shortly after boot), then every Nth.
+    const observePass = tickCount % observeEveryTicks === 1
     try {
       for (const uta of getInstances()) {
         if (uta.keyless || uta.health !== 'healthy') continue
+
+        if (observePass) {
+          try {
+            const { observed } = await uta.observeExternalOrders()
+            if (observed > 0) {
+              log(`[order-sync] ${uta.id}: recorded ${observed} external order(s)`)
+            }
+          } catch (err) {
+            log(`[order-sync] ${uta.id}: external-order observation failed — ${err instanceof Error ? err.message : String(err)}`)
+          }
+        }
+
         if (uta.getPendingOrderIds().length === 0) continue
         try {
           const result = await uta.sync()

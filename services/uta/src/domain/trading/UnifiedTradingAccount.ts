@@ -596,6 +596,36 @@ export class UnifiedTradingAccount {
     return this.git.getPendingOrderIds()
   }
 
+  /**
+   * Faithful-record pass for orders Alice didn't place: diff the broker's
+   * open orders against every orderId the log has ever seen, and squash the
+   * unknowns into one [observed] commit. The log is the narrative, not the
+   * state engine — this exists so "怎么回事" is always answerable from the
+   * log. Once recorded (orderId + submitted), the regular pending scanner
+   * and sync poller track the order's fill/cancel like any other.
+   *
+   * No-op (0 broker calls beyond the listing) when the broker can't
+   * enumerate open orders or everything is already known.
+   */
+  async observeExternalOrders(): Promise<{ observed: number }> {
+    if (!this.broker.getOpenOrders) return { observed: 0 }
+    const open = await this._callBroker(() => this.broker.getOpenOrders!())
+    if (open.length === 0) return { observed: 0 }
+
+    const known = this.git.getKnownOrderIds()
+    const unknown = open.filter((o) => o.orderId && !known.has(o.orderId))
+    if (unknown.length === 0) return { observed: 0 }
+
+    for (const o of unknown) this.stampAliceId(o.contract)
+    const stateAfter = await this._getState()
+    await this.git.recordObservedOrders({
+      observed: unknown.map((o) => ({ contract: o.contract, order: o.order, orderId: o.orderId! })),
+      stateAfter,
+    })
+    console.warn(`UTA[${this.id}]: recorded ${unknown.length} external order(s) not placed through Alice`)
+    return { observed: unknown.length }
+  }
+
   simulatePriceChange(priceChanges: PriceChangeInput[]): Promise<SimulatePriceChangeResult> {
     return this.git.simulatePriceChange(priceChanges)
   }

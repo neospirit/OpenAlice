@@ -121,6 +121,13 @@ export interface OpenOrder {
   order: Order
   orderState: OrderState
   /**
+   * Broker-native order id AS A STRING. `order.orderId` is IBKR-shaped
+   * (number) and mangles ids that exceed float precision — CCXT venues
+   * issue 19-digit ids. Consumers that diff or track orders (external-
+   * order observation) must use this field.
+   */
+  orderId?: string
+  /**
    * Average fill price — from orderStatus callback or broker-specific
    * source. String to preserve Decimal precision end-to-end (sub-tick
    * fills + sub-satoshi accounting in OKX/Bybit unified accounts can
@@ -359,6 +366,15 @@ export interface IBroker<TMeta = unknown> {
    * with globally-unique order ids may ignore it.
    */
   getOrder(orderId: string, symbolHint?: string): Promise<OpenOrder | null>
+  /**
+   * List ALL currently-open orders on the account — including ones Alice
+   * never placed (user trading on the exchange app directly). Optional:
+   * brokers without a broad open-orders API simply don't declare it, and
+   * external-order observation degrades to off for that account. Returns
+   * an empty array (never throws) when the venue can't enumerate without
+   * extra scoping the broker doesn't have.
+   */
+  getOpenOrders?(): Promise<OpenOrder[]>
   getQuote(contract: Contract): Promise<Quote>
   getMarketClock(): Promise<MarketClock>
 

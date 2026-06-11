@@ -440,6 +440,16 @@ export class AlpacaBroker implements IBroker {
     }
   }
 
+  /** All open orders on the account — external-order observation surface. */
+  async getOpenOrders(): Promise<OpenOrder[]> {
+    try {
+      const raw = await this.client.getOrders({ status: 'open' }) as AlpacaOrderRaw[]
+      return raw.map((o) => this.mapOpenOrder(o))
+    } catch (err) {
+      throw BrokerError.from(err)
+    }
+  }
+
   async getQuote(contract: Contract): Promise<Quote> {
     const symbol = resolveSymbol(contract)
     if (!symbol) throw new BrokerError('EXCHANGE', 'Cannot resolve contract to Alpaca symbol')
@@ -552,6 +562,7 @@ export class AlpacaBroker implements IBroker {
       contract,
       order,
       orderState: makeOrderState(o.status, o.reject_reason ?? undefined),
+      ...(o.id && { orderId: o.id }),
       ...(o.filled_avg_price != null && { avgFillPrice: o.filled_avg_price }),
       ...(tpsl && { tpsl }),
     }

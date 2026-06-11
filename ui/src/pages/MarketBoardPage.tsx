@@ -142,10 +142,17 @@ function listLabel(k: MoversList, t: ReturnType<typeof useTranslation>['t']): st
   }
 }
 
-/** Explicit provider label — same disambiguation philosophy as bar sources. */
+/** Explicit provider label — same disambiguation philosophy as bar sources.
+ *  provider = upstream provenance; origin = which path served (hub vs your
+ *  own keys). Both explicit, neither silent. */
 function ProviderBadge({ meta }: { meta: ReferenceMeta }) {
   return (
-    <span className="text-text-muted/50"> · {meta.provider}</span>
+    <span className="text-text-muted/50">
+      {' · '}{meta.provider}
+      {meta.origin === 'hub' && <span className="ml-1.5 text-[9px] uppercase tracking-wide px-1 py-px rounded bg-accent/15 text-accent">hub</span>}
+      {meta.origin === 'local' && <span className="ml-1.5 text-[9px] uppercase tracking-wide px-1 py-px rounded bg-bg-tertiary text-text-muted">local</span>}
+      {meta.stale && <span className="ml-1.5 text-[9px] uppercase tracking-wide px-1 py-px rounded bg-amber-500/15 text-amber-400">stale</span>}
+    </span>
   )
 }
 
@@ -229,7 +236,7 @@ function CalendarBoardView() {
         description={
           <>
             {t('market.calendarSubtitle')}
-            {data && <span className="text-text-muted/50"> · {data.window.start} → {data.window.end} · {data.meta.provider}</span>}
+            {data && <><span className="text-text-muted/50"> · {data.window.start} → {data.window.end}</span><ProviderBadge meta={data.meta} /></>}
           </>
         }
         live={{ lastUpdated: updatedAt }}
@@ -404,7 +411,7 @@ function MacroBoardView() {
         description={
           <>
             {t('market.macroSubtitle')}
-            {data && <span className="text-text-muted/50"> · {data.meta.provider}</span>}
+            {data && <ProviderBadge meta={data.meta} />}
           </>
         }
         live={{ lastUpdated: updatedAt }}
@@ -485,7 +492,7 @@ function TermStructureBoardView() {
         description={
           <>
             {t('market.termSubtitle')}
-            {data && <span className="text-text-muted/50"> · {data.meta.provider}</span>}
+            {data && <ProviderBadge meta={data.meta} />}
           </>
         }
         live={{ lastUpdated: updatedAt }}
@@ -592,7 +599,7 @@ function GlobalMacroBoardView() {
         description={
           <>
             {t('market.globalMacroSubtitle')}
-            {data && <span className="text-text-muted/50"> · {data.meta.provider}</span>}
+            {data && <ProviderBadge meta={data.meta} />}
           </>
         }
         live={{ lastUpdated: updatedAt }}
@@ -685,7 +692,7 @@ function ShippingBoardView() {
         description={
           <>
             {t('market.shippingSubtitle')}
-            {data && <span className="text-text-muted/50"> · {data.meta.provider}</span>}
+            {data && <ProviderBadge meta={data.meta} />}
           </>
         }
         live={{ lastUpdated: updatedAt }}
@@ -778,7 +785,7 @@ function FedBoardView() {
         description={
           <>
             {t('market.fedSubtitle')}
-            {data && <span className="text-text-muted/50"> · {data.meta.provider}</span>}
+            {data && <ProviderBadge meta={data.meta} />}
           </>
         }
         live={{ lastUpdated: updatedAt }}

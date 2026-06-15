@@ -25,6 +25,7 @@ import { listDir, PathTraversal, readWorkspaceFile } from '../../workspaces/file
 import { gitLog, gitStatus } from '../../workspaces/git-service.js';
 import { logger as launcherLogger } from '../../workspaces/logger.js';
 import type { SessionRecord } from '../../workspaces/session-registry.js';
+import type { WorkspaceMeta } from '../../workspaces/workspace-registry.js';
 import { HeadlessCapacityError, resumeFromRecord, type SessionFactoryContext, type WorkspaceService } from '../../workspaces/service.js';
 import type { WorkspaceAiCred } from '../../workspaces/cli-adapter.js';
 import { addCredential, readCredentials, credentialWires, credentialWireShapeEnum, type Credential } from '../../core/config.js';
@@ -39,8 +40,193 @@ const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 // adapter's own resume flag.
 const AGENT_SESSION_ID_RE = /^[A-Za-z0-9_.-]{8,128}$/;
 
+/** Upper bound on a quick-chat seed prompt — matches the headless-dispatch cap. */
+const MAX_SEED_PROMPT = 16000;
+
+/** The template quick-chat reuses-or-creates its workspace from. */
+const QUICK_CHAT_TEMPLATE = 'chat';
+
+/**
+ * A valid, unused tag for the one chat workspace quick-chat creates on first
+ * use (`chat`, then `chat-2`, … on collision). Quick-chat reuses this workspace
+ * thereafter, so this only runs once until the user deletes it.
+ */
+function freshChatTag(svc: WorkspaceService): string {
+  if (!svc.registry.hasTag(QUICK_CHAT_TEMPLATE)) return QUICK_CHAT_TEMPLATE;
+  for (let i = 2; i < 1000; i++) {
+    const t = `${QUICK_CHAT_TEMPLATE}-${i}`;
+    if (!svc.registry.hasTag(t)) return t;
+  }
+  return `${QUICK_CHAT_TEMPLATE}-${randomUUID().slice(0, 8)}`;
+}
+
+/**
+ * Validate an optional quick-chat seed prompt (the first message a fresh
+ * interactive TUI opens already working on). Returns the trimmed prompt, `null`
+ * when absent/blank (→ a normal unseeded fresh spawn), or a `{error}` to surface
+ * as a 400. Mirrors the headless-dispatch validation so the interactive-seed and
+ * one-shot paths agree on shape + cap.
+ */
+function parseSeedPrompt(
+  raw: unknown,
+): { prompt: string } | { error: string; message: string } | null {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw !== 'string') {
+    return { error: 'bad_request', message: 'initialPrompt must be a string' };
+  }
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return null;
+  if (trimmed.length > MAX_SEED_PROMPT) {
+    return { error: 'prompt_too_long', message: `max ${MAX_SEED_PROMPT} chars` };
+  }
+  return { prompt: trimmed };
+}
+
+/** The 201 body both `/:id/sessions/spawn` and `/quick-chat` return. */
+interface SpawnedSessionBody {
+  readonly sessionId: string;
+  readonly wsId: string;
+  readonly name: string;
+  readonly pid: number;
+  readonly agent: string;
+  readonly agentSessionId: string | null;
+  readonly startedAt: number;
+}
+
+type SpawnSessionResult =
+  | { readonly ok: true; readonly session: SpawnedSessionBody }
+  | { readonly ok: false; readonly status: number; readonly body: { error: string; message?: string } };
+
 export function createWorkspaceRoutes(svc: WorkspaceService): Hono {
   const app = new Hono();
+
+  /**
+   * Spawn one interactive PTY session in an existing workspace — the shared
+   * core of `POST /:id/sessions/spawn` and `POST /quick-chat` (so the two never
+   * drift on bootstrap / record-creation / pool-spawn). Resolves the adapter,
+   * runs its bootstrap, pre-allocates the SessionRecord, and hands the
+   * SessionFactoryContext (incl. the optional fresh-spawn `initialPrompt`) to
+   * the pool. Returns the SpawnedSession body or an HTTP-mappable error.
+   */
+  async function spawnInteractiveSession(
+    meta: WorkspaceMeta,
+    opts: {
+      readonly agentId?: string;
+      readonly resume?: SessionFactoryContext['resume'];
+      readonly initialPrompt?: string;
+    },
+  ): Promise<SpawnSessionResult> {
+    const id = meta.id;
+    const { agentId, resume, initialPrompt } = opts;
+    if (agentId && !svc.adapters.get(agentId)) {
+      return { ok: false, status: 400, body: { error: 'unknown_agent', message: `no adapter: ${agentId}` } };
+    }
+    const adapter = svc.resolveAdapter(meta, agentId);
+    try {
+      if (adapter.bootstrap) {
+        await adapter.bootstrap({ wsId: id, cwd: meta.dir, launcherRepoRoot: svc.config.launcherRepoRoot });
+      }
+    } catch (err) {
+      launcherLogger.error('adapter.bootstrap_failed', { id, agent: adapter.id, err });
+      return { ok: false, status: 500, body: { error: 'bootstrap_failed', message: (err as Error).message } };
+    }
+    await svc.sessionRegistry.ensureLoaded(id);
+    const prefix = adapter.namePrefix ?? adapter.id[0] ?? 's';
+    const recordId = randomUUID();
+    const recordName = svc.sessionRegistry.nextName(id, adapter.id, prefix);
+    const nowIso = new Date().toISOString();
+    const record: SessionRecord = {
+      id: recordId,
+      wsId: id,
+      agent: adapter.id,
+      name: recordName,
+      createdAt: nowIso,
+      lastActiveAt: nowIso,
+      state: 'running',
+    };
+    try {
+      await svc.sessionRegistry.create(record);
+    } catch (err) {
+      launcherLogger.error('session_registry.create_failed', { id, recordId, err });
+      return { ok: false, status: 500, body: { error: 'registry_failed', message: (err as Error).message } };
+    }
+    try {
+      const ctx: SessionFactoryContext = {
+        ...(resume !== undefined ? { resume } : {}),
+        ...(agentId !== undefined ? { agentId } : {}),
+        ...(initialPrompt !== undefined ? { initialPrompt } : {}),
+        recordId,
+        recordName,
+      };
+      const session = svc.pool.spawn(id, ctx);
+      launcherLogger.info('workspace.session_spawned', {
+        id,
+        sessionId: session.recordId,
+        name: session.name,
+        pid: session.pid,
+        agent: adapter.id,
+        resume: resume === undefined ? null : resume === 'last' ? 'last' : resume.sessionId,
+        seeded: resume === undefined && !!initialPrompt,
+      });
+      return {
+        ok: true,
+        session: {
+          sessionId: session.recordId,
+          wsId: session.wsId,
+          name: session.name,
+          pid: session.pid,
+          agent: adapter.id,
+          agentSessionId: session.agentSessionId,
+          startedAt: session.startedAt,
+        },
+      };
+    } catch (err) {
+      await svc.sessionRegistry.remove(id, recordId).catch(() => undefined);
+      launcherLogger.error('workspace.session_spawn_failed', { id, err });
+      return { ok: false, status: 500, body: { error: 'spawn_failed', message: (err as Error).message } };
+    }
+  }
+
+  // Serializes quick-chat's find-or-create so two concurrent FIRST-TIME launches
+  // don't both bootstrap a `chat` workspace — the loser's `registry.add` would
+  // throw on the duplicate tag and leak an orphaned bootstrap dir. In-process
+  // chain (quick-chat is low-frequency, single-process); the `.catch` keeps a
+  // failed run from poisoning the gate forever.
+  let chatWsGate: Promise<unknown> = Promise.resolve();
+
+  const findOrCreateChatWorkspace = async (): Promise<
+    { ok: true; meta: WorkspaceMeta } | { ok: false; status: number; body: { error: string; message?: string } }
+  > => {
+    const existing = svc.registry.list().find((w) => w.template === QUICK_CHAT_TEMPLATE);
+    if (existing) return { ok: true, meta: existing };
+    let created: Awaited<ReturnType<typeof svc.creator.create>>;
+    try {
+      created = await svc.creator.create(freshChatTag(svc), QUICK_CHAT_TEMPLATE);
+    } catch (err) {
+      // e.g. a concurrent create committed the tag between freshChatTag() and
+      // registry.add(). Re-find — the winner's workspace now exists.
+      const after = svc.registry.list().find((w) => w.template === QUICK_CHAT_TEMPLATE);
+      if (after) return { ok: true, meta: after };
+      launcherLogger.error('quick_chat.create_threw', { err });
+      return { ok: false, status: 500, body: { error: 'create_failed', message: (err as Error).message } };
+    }
+    if (!created.ok) {
+      // tag_in_use means someone else created a chat workspace — re-find and reuse.
+      if (created.code === 'tag_in_use') {
+        const after = svc.registry.list().find((w) => w.template === QUICK_CHAT_TEMPLATE);
+        if (after) return { ok: true, meta: after };
+      }
+      const status =
+        created.code === 'tag_in_use' ? 409
+        : created.code === 'unknown_template' ? 400
+        : created.code === 'invalid_tag' ? 400
+        : created.code === 'unknown_agent' ? 400
+        : 500;
+      launcherLogger.error('quick_chat.create_failed', { code: created.code, message: created.message });
+      return { ok: false, status, body: { error: created.code, message: created.message } };
+    }
+    return { ok: true, meta: created.workspace };
+  };
 
   // ── templates / agents ───────────────────────────────────────────────────
 
@@ -264,6 +450,7 @@ export function createWorkspaceRoutes(svc: WorkspaceService): Hono {
 
     let resume: SessionFactoryContext['resume'];
     let agentId: string | undefined;
+    let initialPrompt: string | undefined;
     try {
       const body = await safeJson(c);
       const fields = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
@@ -272,75 +459,64 @@ export function createWorkspaceRoutes(svc: WorkspaceService): Hono {
       else if (typeof raw === 'string' && AGENT_SESSION_ID_RE.test(raw)) resume = { sessionId: raw };
       const rawAgent = fields['agent'];
       if (typeof rawAgent === 'string' && rawAgent.length > 0) agentId = rawAgent;
+      // Quick-chat seed (fresh-only): a first message the TUI opens already
+      // working on. Ignored when resuming — seeding + resume is ambiguous on
+      // codex's `resume <id>` / pi's `--session-id`.
+      const seed = parseSeedPrompt(fields['initialPrompt']);
+      if (seed && 'error' in seed) return c.json(seed, 400);
+      if (seed && resume === undefined) initialPrompt = seed.prompt;
     } catch (err) {
       return c.json({ error: 'bad_request', message: (err as Error).message }, 400);
     }
-    if (agentId && !svc.adapters.get(agentId)) {
-      return c.json({ error: 'unknown_agent', message: `no adapter: ${agentId}` }, 400);
-    }
-    const adapter = svc.resolveAdapter(meta, agentId);
+    const result = await spawnInteractiveSession(meta, {
+      ...(agentId !== undefined ? { agentId } : {}),
+      ...(resume !== undefined ? { resume } : {}),
+      ...(initialPrompt !== undefined ? { initialPrompt } : {}),
+    });
+    if (!result.ok) return c.json(result.body, result.status as 400 | 500);
+    return c.json(result.session, 201);
+  });
+
+  // Quick-chat launch — the "type a message → you're in" front door, decoupled
+  // from the multi-step create-workspace UI. Reuses (or, on first use, creates)
+  // the chat-template workspace, then spawns ONE fresh interactive session
+  // seeded with the user's first message. One POST returns both the workspace
+  // and the live session, so the client can drop the user straight into the TUI.
+  // Body: { prompt: string; agent?: string }
+  app.post('/quick-chat', async (c) => {
+    let prompt: string;
+    let agentId: string | undefined;
     try {
-      if (adapter.bootstrap) {
-        await adapter.bootstrap({
-          wsId: id,
-          cwd: meta.dir,
-          launcherRepoRoot: svc.config.launcherRepoRoot,
-        });
-      }
+      const body = await safeJson(c);
+      const fields = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
+      const seed = parseSeedPrompt(fields['prompt']);
+      if (seed === null) return c.json({ error: 'prompt_required' }, 400);
+      if ('error' in seed) return c.json(seed, 400);
+      prompt = seed.prompt;
+      const rawAgent = fields['agent'];
+      if (typeof rawAgent === 'string' && rawAgent.length > 0) agentId = rawAgent;
     } catch (err) {
-      launcherLogger.error('adapter.bootstrap_failed', { id, agent: adapter.id, err });
-      return c.json({ error: 'bootstrap_failed', message: (err as Error).message }, 500);
+      return c.json({ error: 'bad_request', message: (err as Error).message }, 400);
     }
-    await svc.sessionRegistry.ensureLoaded(id);
-    const prefix = adapter.namePrefix ?? adapter.id[0] ?? 's';
-    const recordId = randomUUID();
-    const recordName = svc.sessionRegistry.nextName(id, adapter.id, prefix);
-    const nowIso = new Date().toISOString();
-    const record: SessionRecord = {
-      id: recordId,
-      wsId: id,
-      agent: adapter.id,
-      name: recordName,
-      createdAt: nowIso,
-      lastActiveAt: nowIso,
-      state: 'running',
-    };
-    try {
-      await svc.sessionRegistry.create(record);
-    } catch (err) {
-      launcherLogger.error('session_registry.create_failed', { id, recordId, err });
-      return c.json({ error: 'registry_failed', message: (err as Error).message }, 500);
-    }
-    try {
-      const ctx: SessionFactoryContext = {
-        ...(resume !== undefined ? { resume } : {}),
-        ...(agentId !== undefined ? { agentId } : {}),
-        recordId,
-        recordName,
-      };
-      const session = svc.pool.spawn(id, ctx);
-      launcherLogger.info('workspace.session_spawned', {
-        id,
-        sessionId: session.recordId,
-        name: session.name,
-        pid: session.pid,
-        agent: adapter.id,
-        resume: resume === undefined ? null : resume === 'last' ? 'last' : resume.sessionId,
-      });
-      return c.json({
-        sessionId: session.recordId,
-        wsId: session.wsId,
-        name: session.name,
-        pid: session.pid,
-        agent: adapter.id,
-        agentSessionId: session.agentSessionId,
-        startedAt: session.startedAt,
-      }, 201);
-    } catch (err) {
-      await svc.sessionRegistry.remove(id, recordId).catch(() => undefined);
-      launcherLogger.error('workspace.session_spawn_failed', { id, err });
-      return c.json({ error: 'spawn_failed', message: (err as Error).message }, 500);
-    }
+
+    // Reuse the most-recent chat-template workspace; create one only if none
+    // exists. Create is heavy (bash + git + skill injection), so we never make a
+    // fresh workspace per message — the codebase's "heavy create once, cheap
+    // spawn many" pattern (sessions, not workspaces, carry conversations). The
+    // find-or-create runs through `chatWsGate` so concurrent first launches
+    // don't double-bootstrap.
+    const run = chatWsGate.catch(() => undefined).then(() => findOrCreateChatWorkspace());
+    chatWsGate = run;
+    const target = await run;
+    if (!target.ok) return c.json(target.body, target.status as 400 | 409 | 500);
+    const meta = target.meta;
+
+    const spawn = await spawnInteractiveSession(meta, {
+      ...(agentId !== undefined ? { agentId } : {}),
+      initialPrompt: prompt,
+    });
+    if (!spawn.ok) return c.json(spawn.body, spawn.status as 400 | 500);
+    return c.json({ workspace: await svc.publicMeta(meta), session: spawn.session }, 201);
   });
 
   // pause / stop (alias)

@@ -71,9 +71,20 @@ export const piAdapter: CliAdapter = {
     // Tools come from the CLI-injection path (alice on PATH + .pi/skills), not
     // flags — so the command head is just the binary + a resume flag (if any).
     const head = ['pi'];
-    if (ctx.resume === undefined) return head;
-    if (ctx.resume === 'last') return [...head, '--continue'];
-    return [...head, '--session-id', ctx.resume.sessionId];
+    // Quick-chat seed: `pi [--session-id <id>] <messages…>` opens the
+    // interactive TUI seeded with that first message. UNLIKE the other adapters,
+    // pi appends the seed REGARDLESS of the resume branch: pi assigns its own id
+    // at spawn (`assignsSessionId`), so a FRESH seeded spawn arrives here with
+    // BOTH a launcher-minted `{ sessionId }` AND `initialPrompt`. The launcher
+    // only ever sets `initialPrompt` on a fresh spawn, so its presence is itself
+    // the "this is fresh" signal — a real resume never carries one. NOTE pi
+    // REJECTS a `--` terminator ("Unknown option: --", verified 0.78.1), so the
+    // prompt is a bare trailing positional (a prompt starting with `-`/`--` is
+    // unprotected on pi; rare for chat messages — the other adapters guard with `--`).
+    const seed = ctx.initialPrompt ? [ctx.initialPrompt] : [];
+    if (ctx.resume === undefined) return [...head, ...seed];
+    if (ctx.resume === 'last') return [...head, '--continue', ...seed];
+    return [...head, '--session-id', ctx.resume.sessionId, ...seed];
   },
 
   // Headless: `pi -p <prompt>` is non-interactive and exits at the turn

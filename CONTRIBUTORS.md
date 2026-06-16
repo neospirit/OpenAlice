@@ -39,7 +39,7 @@ This page is the record of those people, and of what each one helped move.
 
 | | Contributor | Credits | Shaped |
 |:--:|---|:--:|---|
-| | _Be the first — open an issue with an idea or report._ [Issues →](https://github.com/TraderAlice/OpenAlice/issues) | | |
+| | <a href="https://github.com/2233admin"><img src="https://github.com/2233admin.png" width="40" height="40" alt="@2233admin" /></a><br>[@2233admin](https://github.com/2233admin) | 🎨 | [Linear dark-shell design pass — palette & navigation density re-traced into the app](https://github.com/TraderAlice/OpenAlice/pull/302) |
 
 ---
 

@@ -501,7 +501,7 @@ export async function createWorkspaceService(opts: CreateWorkspaceServiceOptions
       // raison d'être of the workspace-sessions.log file: any two fields that
       // should be equal but aren't are the bug, eyeball-comparable. Keep this
       // verbose; the file is grep-only, not human-tailed.
-      launcherLogger.info('path.trace', {
+      launcherLogger.event('path.trace', {
         where: 'session.spawn',
         wsId,
         recordId: ctx.recordId,

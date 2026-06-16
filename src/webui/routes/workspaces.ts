@@ -610,7 +610,7 @@ export function createWorkspaceRoutes(svc: WorkspaceService): Hono {
     // we're ABOUT to do, before bootstrap or spawn. If a downstream step
     // diverges (e.g. claude CLI writes jsonl to a different projectKey),
     // we compare this against the transcript.watch.register trace.
-    launcherLogger.info('path.trace', {
+    launcherLogger.event('path.trace', {
       where: 'resume.attempt',
       wsId: id,
       recordId: token,

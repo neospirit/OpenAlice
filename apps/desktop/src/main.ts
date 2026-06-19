@@ -21,7 +21,7 @@
  * code signing, blocked by Squirrel.Mac), multi-window, native menus.
  */
 
-import { app, BrowserWindow, dialog, shell } from 'electron'
+import { app, BrowserWindow, dialog, shell, Menu } from 'electron'
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { mkdir, readFile, watch } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
@@ -284,6 +284,17 @@ app.whenReady().then(async () => {
   // ── Restart-flag watcher: broker config changes touch the flag; SIGTERM
   // + respawn UTA without restarting Alice (mirrors prod.mjs). ────────────
   void startFlagWatcher(homeEnv.OPENALICE_HOME, utaUrl, spawnUTA)
+
+  // No in-window menu bar on Windows/Linux — Electron's default
+  // File/Edit/View/Window/Help renders *inside* the window there and is
+  // meaningless for a single-window web-UI app (it never shows on macOS,
+  // where menus live in the system bar). macOS keeps a minimal menu so the
+  // app menu + copy/paste/select-all accelerators still work.
+  Menu.setApplicationMenu(
+    process.platform === 'darwin'
+      ? Menu.buildFromTemplate([{ role: 'appMenu' }, { role: 'editMenu' }, { role: 'windowMenu' }])
+      : null,
+  )
 
   const win = new BrowserWindow({
     width: 1280,

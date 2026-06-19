@@ -157,10 +157,19 @@ export class WorkspaceCreator {
         exitCode: result.exitCode,
         stderr: result.stderr.slice(0, 4000),
       });
+      // Surface the actual reason in the message, not just the exit code —
+      // a null exit code (spawn failure: bash-not-found on Windows, timeout)
+      // rendered as "code unknown" tells the user nothing, while result.stderr
+      // already carries the why (e.g. the Git-for-Windows install hint).
+      const reason = result.stderr.trim();
+      const headline =
+        result.exitCode === null
+          ? 'bootstrap could not start'
+          : `bootstrap script exited with code ${result.exitCode}`;
       return {
         ok: false,
         code: 'bootstrap_failed',
-        message: `bootstrap script exited with code ${result.exitCode ?? 'unknown'}`,
+        message: reason ? `${headline}:\n${reason.slice(-500)}` : headline,
         stderr: result.stderr,
         ...(result.exitCode !== null ? { exitCode: result.exitCode } : {}),
       };

@@ -143,6 +143,11 @@ export interface UtaBarGateway {
   get(id: string): Promise<UtaBarAccount | undefined>
   /** Flat contract-search hits across all accounts (for searchBarSources). */
   searchContracts(pattern: string): Promise<ContractSearchHit[]>
+  /** sourceId → declared historical-bar quality, so the federated layer reports
+   *  the BROKER's honest entitlement (Alpaca free = 'iex', CCXT = 'realtime')
+   *  instead of blanket-labeling every broker source 'realtime'. Optional: a
+   *  gateway that can't surface it falls back to 'realtime'. */
+  getBarCapabilities?(): Promise<Record<string, BarCapability>>
 }
 
 export interface BarServiceDeps {

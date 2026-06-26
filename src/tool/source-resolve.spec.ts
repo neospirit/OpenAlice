@@ -15,13 +15,14 @@ describe('resolveBarSource', () => {
     expect(r).toEqual({ ref: { barId: 'alpaca|XLE' } })
   })
 
-  it('auto-pick prefers a non-derivative over a same-freshness perp (perp = backup)', async () => {
-    // search returns the crypto perp FIRST (as the live UTA search does), but the
-    // equity should still win — a perp tracking a ticker is a backup, not the default.
+  it('auto-pick prefers the real equity over a FRESHER crypto perp (perp = backup)', async () => {
+    // The honest case: search returns the crypto perps FIRST and they're 'realtime',
+    // while the Alpaca equity is only 'iex' (free tier). Freshness alone would pick
+    // the synthetic perp — non-derivative-first keeps a bare ticker on the equity.
     const svc = svcWith([
       { barId: 'binance|XLE/USDT:USDT', barCapability: 'realtime', assetClass: 'crypto' },
       { barId: 'okx|XLE/USDT:USDT', barCapability: 'realtime', assetClass: 'crypto' },
-      { barId: 'alpaca|XLE', barCapability: 'realtime', assetClass: 'equity' },
+      { barId: 'alpaca|XLE', barCapability: 'iex', assetClass: 'equity' },
     ])
     const r = await resolveBarSource(svc, { query: 'XLE' })
     expect('error' in r).toBe(false)

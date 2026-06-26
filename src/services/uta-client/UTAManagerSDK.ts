@@ -108,6 +108,19 @@ export class UTAManagerSDK {
     return all.some((u) => u.id === id)
   }
 
+  /** sourceId → declared historical-bar quality, for the federated bar layer to
+   *  report each broker's honest entitlement (Alpaca free = 'iex', CCXT =
+   *  'realtime') rather than blanket-labeling broker sources 'realtime'. */
+  async getBarCapabilities(): Promise<Record<string, 'realtime' | 'iex' | 'delayed' | 'subscription'>> {
+    const all = await this.listUTAs()
+    const out: Record<string, 'realtime' | 'iex' | 'delayed' | 'subscription'> = {}
+    for (const u of all) {
+      const q = u.capabilities.historicalBars?.quality
+      if (q) out[u.id] = q
+    }
+    return out
+  }
+
   /** UTAManager exposed `size` as a sync getter — SDK can't avoid the
    *  HTTP round-trip, so this is a method. Callsites become
    *  `await manager.size()`. */

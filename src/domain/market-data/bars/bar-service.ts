@@ -227,6 +227,11 @@ export function createBarService(deps: BarServiceDeps): BarService {
   async function getUtaBars(sourceId: string, barId: string, opts: GetBarsOpts): Promise<BarsResult> {
     const acct = await deps.utaManager.get(sourceId)
     if (!acct) throw new Error(`UTA source "${sourceId}" not found for barId "${barId}"`)
+    // The broker's HONEST entitlement (Alpaca free = 'iex', CCXT = 'realtime'),
+    // not a blanket 'realtime'. Falls back to 'realtime' when the gateway can't
+    // surface it (mocks / brokers that declare no quality).
+    const caps: Record<string, BarCapability> = (await deps.utaManager.getBarCapabilities?.()) ?? {}
+    const cap: BarCapability = caps[sourceId] ?? 'realtime'
     // Mirror the vendor branch: a count-only request becomes a START WINDOW we
     // over-fetch and then tail-slice (finalize keeps the most-recent `count`).
     // We deliberately do NOT forward `count` as the broker's `limit`. Alpaca's
@@ -251,7 +256,7 @@ export function createBarService(deps: BarServiceDeps): BarService {
         source: 'uta',
         sourceId,
         barId,
-        barCapability: 'realtime',
+        barCapability: cap,
         ...computeFreshness(bars[bars.length - 1]?.date ?? '', opts, () => new Date()),
       }),
     }
@@ -263,10 +268,12 @@ export function createBarService(deps: BarServiceDeps): BarService {
       // Federate vendor (OpenTypeBB) + broker (UTA) search. allSettled so one
       // side failing (e.g. no UTA configured) doesn't kill the other. Flat
       // candidates, no cross-source dedup — redundancy is the feature.
-      const [vendorRes, utaRes] = await Promise.allSettled([
+      const [vendorRes, utaRes, capsRes] = await Promise.allSettled([
         aggregateSymbolSearch(deps.marketSearch, query, limit),
         deps.utaManager.searchContracts(query),
+        deps.utaManager.getBarCapabilities?.() ?? Promise.resolve<Record<string, BarCapability>>({}),
       ])
+      const caps: Record<string, BarCapability> = capsRes.status === 'fulfilled' ? capsRes.value : {}
       const out: BarSourceCandidate[] = []
 
       if (vendorRes.status === 'fulfilled') {
@@ -296,6 +303,7 @@ export function createBarService(deps: BarServiceDeps): BarService {
           const barId = hit.contract.aliceId
           if (!barId) continue // need the operational identity to fetch later
           const symbol = hit.contract.symbol || hit.contract.localSymbol || ''
+          const cap: BarCapability = caps[hit.source] ?? 'realtime'
           out.push({
             barId,
             source: 'uta',
@@ -304,8 +312,10 @@ export function createBarService(deps: BarServiceDeps): BarService {
             // Venue-decided asset class is authoritative; secType is only a
             // broker-blind fallback (and wrong for e.g. a CCXT dated future).
             assetClass: hit.assetClass ?? secTypeToAssetClass(hit.contract.secType),
-            label: (symbol ? `${symbol} (${hit.source})` : barId) + ' · realtime',
-            barCapability: 'realtime',
+            // Honest entitlement in the label too (Alpaca free = 'iex'), not a
+            // blanket 'realtime'.
+            label: (symbol ? `${symbol} (${hit.source})` : barId) + ` · ${cap}`,
+            barCapability: cap,
           })
         }
       }

@@ -150,6 +150,30 @@ describe('getBars — UTA branch', () => {
     expect(getHistorical).toHaveBeenCalledWith({ aliceId: 'alpaca-paper|AAPL' }, expect.objectContaining({ interval: '1d' }))
   })
 
+  it('reports the broker\'s HONEST bar quality (alpaca free = iex), not a blanket realtime', async () => {
+    const utaManager: UtaBarGateway = {
+      has: async (id) => id === 'alpaca-paper',
+      get: async () => ({ getHistorical: async () => WIRE }),
+      searchContracts: async () => [],
+      getBarCapabilities: async () => ({ 'alpaca-paper': 'iex' }),
+    }
+    const svc = createBarService(makeDeps({ utaManager }))
+    const { meta } = await svc.getBars({ barId: 'alpaca-paper|AAPL' }, { interval: '1d' })
+    expect(meta.barCapability).toBe('iex')
+  })
+
+  it('falls back to realtime when the gateway cannot surface a quality', async () => {
+    const utaManager: UtaBarGateway = {
+      has: async (id) => id === 'alpaca-paper',
+      get: async () => ({ getHistorical: async () => WIRE }),
+      searchContracts: async () => [],
+      // no getBarCapabilities
+    }
+    const svc = createBarService(makeDeps({ utaManager }))
+    const { meta } = await svc.getBars({ barId: 'alpaca-paper|AAPL' }, { interval: '1d' })
+    expect(meta.barCapability).toBe('realtime')
+  })
+
   it('renders a daily broker bar date-only even when stamped at the session open (no 05:00 / DST noise)', async () => {
     // Alpaca stamps a daily bar at the premarket open (04:00/05:00 ET in UTC),
     // which also flips an hour across DST — render the calendar day, not an instant.

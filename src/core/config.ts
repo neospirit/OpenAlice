@@ -277,6 +277,13 @@ const marketDataSchema = z.object({
     currency: 'yfinance',
     commodity: 'yfinance',
   }),
+  /** Opt-in incremental vendors federated into equity search alongside the
+   *  default provider — regional/specialised sources a user manually enables
+   *  (e.g. 'eastmoney' for CN A-share Chinese-name search + 前复权 K-line).
+   *  yfinance stays the always-on global default; these are purely additive,
+   *  surfaced as extra searchBars candidates in their own namespace, never a
+   *  replacement. Each name must be a registered OpenTypeBB provider. */
+  extraVendors: z.array(z.string()).default([]),
   providerKeys: z.object({
     fred: z.string().optional(),
     fmp: z.string().optional(),

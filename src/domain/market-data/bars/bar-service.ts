@@ -34,6 +34,7 @@ const MAX_BARS = 5000
 const VENDOR_CAPABILITY: Record<string, BarCapability> = {
   yfinance: 'delayed',
   fmp: 'delayed',
+  eastmoney: 'delayed',
 }
 
 const BAR_INTERVALS: readonly BarInterval[] = ['1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w']
@@ -279,7 +280,9 @@ export function createBarService(deps: BarServiceDeps): BarService {
       if (vendorRes.status === 'fulfilled') {
         for (const r of vendorRes.value) {
           const symbol = String(r.symbol ?? r.id ?? '')
-          const provider = deps.vendorProviders[r.assetClass]
+          // Per-result vendor attribution (multi-vendor equity); falls back to
+          // the configured per-asset provider for crypto/currency/commodity.
+          const provider = r.sourceId ?? deps.vendorProviders[r.assetClass]
           const cap = VENDOR_CAPABILITY[provider]
           const base = r.name ? `${symbol} · ${r.name} (${provider})` : `${symbol} (${provider})`
           out.push({

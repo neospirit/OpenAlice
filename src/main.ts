@@ -171,7 +171,11 @@ async function main() {
   const commodityCatalog = new CommodityCatalog()
   commodityCatalog.load()
 
-  const marketSearch = { symbolIndex, equityClient, cryptoClient, currencyClient, commodityCatalog }
+  // Default equity vendor + user-opted incremental vendors (eastmoney, …),
+  // de-duped. Fanned out in searchBars; yfinance stays the always-on default.
+  const equityVendors = [...new Set([providers.equity, ...config.marketData.extraVendors])]
+
+  const marketSearch = { symbolIndex, equityVendors, equityClient, cryptoClient, currencyClient, commodityCatalog }
 
   // Federated bar layer — vendor (OpenTypeBB) + broker (UTA) OHLCV behind one
   // barId-keyed interface. Vendor branch live now; UTA branch lands with Phase 1.

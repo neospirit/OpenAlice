@@ -18,6 +18,10 @@ export type AssetClass = 'equity' | 'crypto' | 'currency' | 'commodity'
 
 export interface MarketSearchDeps {
   symbolIndex: SymbolIndex
+  /** Equity vendors to fan search across — [primary, ...extraVendors]. The
+   *  first is the default (yfinance) that also backs the local SEC index;
+   *  the rest are user-opted incremental vendors (e.g. eastmoney). */
+  equityVendors: string[]
   equityClient: EquityClientLike
   cryptoClient: CryptoClientLike
   currencyClient: CurrencyClientLike
@@ -30,6 +34,10 @@ export interface MarketSearchResult {
   id?: string
   name?: string | null
   assetClass: AssetClass
+  /** Which vendor produced this hit — drives the barId's sourceId so getBars
+   *  routes back to the same vendor. Absent for crypto/currency/commodity
+   *  (they fall back to the configured per-asset provider). */
+  sourceId?: string
   [key: string]: unknown
 }
 
@@ -70,24 +78,37 @@ export async function aggregateSymbolSearch(
   const q = query.trim()
   if (!q) return []
 
+  const primaryEquity = deps.equityVendors[0] ?? 'yfinance'
+
   // Local SEC index — US-only, zero-latency, authoritative for US tickers.
+  // Attributed to the primary equity vendor (its symbols feed that provider).
   const equityResults = deps.symbolIndex
     .search(q, limit)
-    .map((r) => ({ ...r, assetClass: 'equity' as const }))
+    .map((r) => ({ ...r, assetClass: 'equity' as const, sourceId: primaryEquity }))
 
   const commodityResults = deps.commodityCatalog
     .search(q, limit)
     .map((r) => ({ ...r, assetClass: 'commodity' as const }))
 
-  const [cryptoSettled, currencySettled, equityOnlineSettled] = await Promise.allSettled([
-    deps.cryptoClient.search({ query: q, provider: 'yfinance' }),
-    deps.currencyClient.search({ query: q, provider: 'yfinance' }),
-    // Yahoo online search — reaches global exchanges (CN A-share .SS/.SZ, TW .TW,
-    // VN .VN, HK, …) the SEC index can't. Returned tickers are Yahoo-native, so
-    // they feed straight into getHistorical. Force yfinance regardless of the
-    // configured equity provider, same as crypto/currency above.
-    deps.equityClient.search({ query: q, provider: 'yfinance', is_symbol: false }),
+  // Online searches, concurrent: crypto + currency on yfinance; equity fanned
+  // out over EVERY enabled vendor (default yfinance + user-opted extras like
+  // eastmoney). Each equity vendor lives in its own symbol namespace — yfinance
+  // returns Yahoo tickers (600519.SS), eastmoney returns secids (1.600519) for
+  // CN names yfinance can't match — so all are kept as redundant candidates.
+  const [coreSettled, equitySettled] = await Promise.all([
+    Promise.allSettled([
+      deps.cryptoClient.search({ query: q, provider: 'yfinance' }),
+      deps.currencyClient.search({ query: q, provider: 'yfinance' }),
+    ]),
+    Promise.allSettled(
+      deps.equityVendors.map((v) =>
+        deps.equityClient
+          .search({ query: q, provider: v, is_symbol: false })
+          .then((rows) => ({ vendor: v, rows })),
+      ),
+    ),
   ])
+  const [cryptoSettled, currencySettled] = coreSettled
 
   const cryptoResults = (cryptoSettled.status === 'fulfilled' ? cryptoSettled.value : []).map(
     (r) => ({ ...r, assetClass: 'crypto' as const }),
@@ -100,22 +121,25 @@ export async function aggregateSymbolSearch(
     })
     .map((r) => ({ ...r, assetClass: 'currency' as const }))
 
-  // Merge online equity hits, de-duped against the local SEC index by symbol —
-  // US names overlap both sources; keep the local entry (richer, authoritative).
+  // Merge equity online hits, de-duped WITHIN each vendor's namespace by
+  // `vendor|symbol` (the SEC index already seeded the primary vendor's keys, so
+  // a US name doesn't double up). Cross-vendor redundancy is intentional —
+  // 600519.SS (yfinance) and 1.600519 (eastmoney) are different sources.
   const seenEquity = new Set(
-    equityResults.map((r) => String((r as Record<string, unknown>).symbol ?? '').toUpperCase()),
+    equityResults.map((r) => `${r.sourceId}|${String((r as Record<string, unknown>).symbol ?? '').toUpperCase()}`),
   )
-  const equityOnlineResults = (equityOnlineSettled.status === 'fulfilled' ? equityOnlineSettled.value : [])
-    .filter((r) => {
-      const sym = String((r as Record<string, unknown>).symbol ?? '').toUpperCase()
-      if (!sym || seenEquity.has(sym)) return false
-      seenEquity.add(sym)
-      return true
-    })
-    .map((r) => {
-      const o = r as Record<string, unknown>
-      return { ...o, symbol: String(o.symbol), assetClass: 'equity' as const }
-    })
+  const equityOnlineResults: MarketSearchResult[] = []
+  for (const settled of equitySettled) {
+    if (settled.status !== 'fulfilled') continue
+    const { vendor, rows } = settled.value
+    for (const r of rows) {
+      const sym = String((r as Record<string, unknown>).symbol ?? '')
+      const key = `${vendor}|${sym.toUpperCase()}`
+      if (!sym || seenEquity.has(key)) continue
+      seenEquity.add(key)
+      equityOnlineResults.push({ ...r, symbol: sym, assetClass: 'equity', sourceId: vendor })
+    }
+  }
 
   const all: MarketSearchResult[] = [
     ...equityResults,

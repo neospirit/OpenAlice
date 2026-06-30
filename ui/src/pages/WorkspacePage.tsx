@@ -20,7 +20,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Plus } from 'lucide-react'
 import '@xterm/xterm/css/xterm.css'
 
-import { useWorkspaces } from '../contexts/WorkspacesContext'
+import { useWorkspaces } from '../contexts/workspaces-context'
 import { useWorkspace } from '../tabs/store'
 import { WorkspaceView } from '../components/workspace/WorkspaceView'
 import { WorkspaceFilesToggle } from '../components/workspace/WorkspaceFilesToggle'

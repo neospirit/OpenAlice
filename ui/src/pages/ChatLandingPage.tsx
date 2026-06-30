@@ -17,7 +17,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 
-import { useWorkspaces } from '../contexts/WorkspacesContext'
+import { useWorkspaces } from '../contexts/workspaces-context'
 import { installHintFor } from '../components/workspace/agentInstall'
 import {
   listAgentCredentials,

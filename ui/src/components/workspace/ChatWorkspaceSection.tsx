@@ -17,7 +17,7 @@ import { useTranslation } from 'react-i18next'
 import { ChevronDown, ChevronRight, FolderPlus, Plus, Settings as SettingsIcon, X } from 'lucide-react'
 
 import { getIntlLocale } from '../../lib/intl'
-import { useWorkspaces } from '../../contexts/WorkspacesContext'
+import { useWorkspaces } from '../../contexts/workspaces-context'
 import { Skeleton } from '../StateViews'
 import { useWorkspace } from '../../tabs/store'
 import { getFocusedTab } from '../../tabs/types'

@@ -17,9 +17,7 @@
  */
 
 import {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
   useState,
   type ReactNode,
@@ -49,56 +47,9 @@ import {
   type Workspace,
 } from '../components/workspace/api'
 import { useWorkspace } from '../tabs/store'
+import { WorkspacesContext, type SpawnOpts } from './workspaces-context'
 
 const LIST_POLL_MS = 3000
-
-export interface SpawnOpts {
-  readonly resume?: 'last' | string
-  readonly agent?: string
-  /** Seed a fresh session with a first message (quick-chat). Ignored when resuming. */
-  readonly initialPrompt?: string
-}
-
-interface WorkspacesContextValue {
-  readonly workspaces: readonly Workspace[]
-  readonly templates: readonly TemplateInfo[]
-  readonly agents: readonly AgentInfo[]
-  readonly defaultAgent: string | null
-  readonly listError: string | null
-  /** True once the first workspaces-list fetch has resolved. Until then an
-   *  empty list means "not loaded yet", not "no workspaces" — the sidebar shows
-   *  a skeleton instead of a blank pane / empty state. */
-  readonly hasLoaded: boolean
-  /** True once the templates fetch has settled (success OR failure). Until then
-   *  an empty `templates` means "not loaded yet", not "no templates" — surfaces
-   *  that null-render or show a "no X configured" state when a template is
-   *  missing MUST gate on this, or they collapse to a blank pane during the
-   *  cold-start window (e.g. the Ask Alice sidebar hides its own skeleton). */
-  readonly templatesLoaded: boolean
-  refresh(): void
-  spawn(wsId: string, opts?: SpawnOpts): Promise<void>
-  setDefaultAgent(agent: string | null): Promise<void>
-  /**
-   * Quick-chat launch: reuse-or-create the chat workspace, spawn a fresh
-   * session seeded with `prompt`, and focus into its terminal tab. Rejects on
-   * failure so the composer can surface it.
-   */
-  quickChat(prompt: string, agent?: string, credentialSlug?: string, targetWsId?: string): Promise<void>
-  pauseSession(wsId: string, sessionId: string): Promise<void>
-  resumeSession(wsId: string, sessionId: string): Promise<void>
-  /**
-   * Request session deletion — opens a confirm dialog (delete is destructive
-   * and the row's × sits right next to the open-conversation hit area, so a
-   * misclick shouldn't nuke a session). The actual delete runs on confirm.
-   */
-  requestDeleteSession(wsId: string, sessionId: string): void
-  /** Open the per-workspace AI-provider config modal for `wsId`. */
-  openAgentConfig(wsId: string): void
-  /** Write workspace-owned display metadata (`.alice/workspace.json`). */
-  renameWorkspace(wsId: string, displayName: string): Promise<void>
-}
-
-const WorkspacesContext = createContext<WorkspacesContextValue | null>(null)
 
 export function WorkspacesProvider({ children }: { children: ReactNode }) {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
@@ -377,12 +328,6 @@ export function WorkspacesProvider({ children }: { children: ReactNode }) {
       )}
     </WorkspacesContext.Provider>
   )
-}
-
-export function useWorkspaces(): WorkspacesContextValue {
-  const ctx = useContext(WorkspacesContext)
-  if (!ctx) throw new Error('useWorkspaces must be used within WorkspacesProvider')
-  return ctx
 }
 
 function patchSession(

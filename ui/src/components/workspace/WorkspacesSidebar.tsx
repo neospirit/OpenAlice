@@ -5,7 +5,7 @@
  * opens (or focuses) the corresponding tab.
  */
 
-import { useWorkspaces } from '../../contexts/WorkspacesContext'
+import { useWorkspaces } from '../../contexts/workspaces-context'
 import { useWorkspace } from '../../tabs/store'
 import { getFocusedTab } from '../../tabs/types'
 import { Sidebar, type SpawnOpts } from './Sidebar'

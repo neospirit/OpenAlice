@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api'
 import type { HeadlessOutput, HeadlessTaskRecord, HeadlessTaskStatus } from '../api/headless'
 import { Skeleton } from '../components/StateViews'
-import { useWorkspaces } from '../contexts/WorkspacesContext'
+import { useWorkspaces } from '../contexts/workspaces-context'
 import { formatRelativeTime } from '../lib/intl'
 
 const STATUS_STYLE: Record<HeadlessTaskStatus, string> = {

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { TrendingUp, Hash } from 'lucide-react'
 import { entitiesLive } from '../live/entities'
 import { useTrackedSelection } from '../live/tracked-selection'
+import { useWorkspace } from '../tabs/store'
 import { SidebarRow } from './SidebarRow'
 import { SidebarSectionHeader } from './SidebarSectionHeader'
 import { SidebarRowsSkeleton } from './StateViews'
@@ -19,6 +20,7 @@ export function TrackedSidebar() {
   const loading = entitiesLive.useStore((s) => s.loading)
   const selected = useTrackedSelection((s) => s.selectedName)
   const select = useTrackedSelection((s) => s.select)
+  const openOrFocus = useWorkspace((s) => s.openOrFocus)
 
   // Default-select the first entity once, on first non-empty load. Latch so
   // the user's later picks are never overridden.
@@ -53,11 +55,15 @@ export function TrackedSidebar() {
 
   const renderRow = (e: (typeof entities)[number]) => {
     const Icon = e.type === 'asset' ? TrendingUp : Hash
+    const openEntity = () => {
+      select(e.name)
+      openOrFocus({ kind: 'tracked', params: {} })
+    }
     return (
       <SidebarRow
         key={e.name}
         active={e.name === selected}
-        onClick={() => select(e.name)}
+        onClick={openEntity}
         title={e.description}
         icon={<Icon size={13} strokeWidth={1.75} className="text-text-muted/70" aria-hidden />}
         label={<span className="font-mono text-[12px]">{e.name}</span>}

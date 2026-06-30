@@ -514,8 +514,9 @@ Stuck? Here's the recommended path, roughly in order:
 ## Contributors
 
 OpenAlice is sharper for the people who dig into it with us — the bugs they
-catch, the ideas they push, the designs and reviews they bring. Credit to every
-one. The people who've left a mark:
+catch, the ideas they push, the UX edges they notice, the designs and reviews
+they bring. High-signal issues count here: if a report or suggestion changes
+the product, it gets credited. The people who've left a mark:
 
 <!-- Standouts (⭐) first. Avatars come free from https://github.com/<handle>.png :
      <a href="https://github.com/HANDLE"><img src="https://github.com/HANDLE.png" width="56" height="56" alt="@HANDLE" /></a> -->
@@ -525,6 +526,8 @@ one. The people who've left a mark:
   <a href="https://github.com/walkonbothsides"><img src="https://github.com/walkonbothsides.png" width="56" height="56" alt="@walkonbothsides" /></a>
   <a href="https://github.com/bakabaka0613"><img src="https://github.com/bakabaka0613.png" width="56" height="56" alt="@bakabaka0613" /></a>
   <a href="https://github.com/JasonWang1124"><img src="https://github.com/JasonWang1124.png" width="56" height="56" alt="@JasonWang1124" /></a>
+  <a href="https://github.com/bakabird"><img src="https://github.com/bakabird.png" width="56" height="56" alt="@bakabird" /></a>
+  <a href="https://github.com/rudyll"><img src="https://github.com/rudyll.png" width="56" height="56" alt="@rudyll" /></a>
 </p>
 
 **See the full list and what each person shaped** → [CONTRIBUTORS.md](./CONTRIBUTORS.md)

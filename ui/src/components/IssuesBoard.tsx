@@ -1,23 +1,18 @@
 import { useState } from 'react'
 import {
-  CheckCircle2,
   ChevronDown,
   ChevronRight,
-  Circle,
-  CircleDashed,
-  CircleDot,
   Clock,
   Copy,
   ListChecks,
-  XCircle,
 } from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
 
 import type { IssueListItem, IssuePriority, IssueStatus, IssueWorkspace } from '../api/issues'
 import type { ScheduleWhen } from '../api/schedule'
 import { useIssues } from '../hooks/useIssues'
 import { useWorkspace } from '../tabs/store'
 import { CenteredLoading } from './StateViews'
+import { STATUS_META } from './issue-status-meta'
 
 // ==================== Cadence pill (lifted from AutomationSchedulesSection) ====================
 
@@ -96,23 +91,8 @@ export function PriorityIndicator({ priority }: { priority: IssuePriority }) {
 
 // ==================== Status metadata + ordering ====================
 
-export interface StatusMeta {
-  label: string
-  Icon: LucideIcon
-  /** Icon tint. */
-  className: string
-}
-
 /** Linear's group order: active work first, terminal states last. */
 const STATUS_ORDER: IssueStatus[] = ['in_progress', 'todo', 'backlog', 'done', 'canceled']
-
-export const STATUS_META: Record<IssueStatus, StatusMeta> = {
-  in_progress: { label: 'In Progress', Icon: CircleDot, className: 'text-amber-400' },
-  todo: { label: 'Todo', Icon: Circle, className: 'text-muted' },
-  backlog: { label: 'Backlog', Icon: CircleDashed, className: 'text-muted/60' },
-  done: { label: 'Done', Icon: CheckCircle2, className: 'text-emerald-400' },
-  canceled: { label: 'Canceled', Icon: XCircle, className: 'text-muted/50' },
-}
 
 interface BoardRow {
   wsId: string

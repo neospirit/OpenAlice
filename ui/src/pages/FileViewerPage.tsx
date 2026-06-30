@@ -14,7 +14,7 @@ import { FileText } from 'lucide-react'
 
 import { FileContentView } from '../components/FileContentView'
 import { CenteredLoading } from '../components/StateViews'
-import { useWorkspaces } from '../contexts/WorkspacesContext'
+import { useWorkspaces } from '../contexts/workspaces-context'
 import { readWorkspaceFile, type ReadFileResult } from '../components/workspace/api'
 import type { ViewSpec } from '../tabs/types'
 

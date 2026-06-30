@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { formatRelativeTime, getIntlLocale } from '../lib/intl'
-import { ArrowRight, Bot, ChevronRight, ListChecks, MessageSquare, Terminal, Trash2 } from 'lucide-react'
+import { ArrowRight, Bot, Check, ChevronRight, Copy, Download, ListChecks, MessageSquare, Terminal, Trash2 } from 'lucide-react'
 import { PageHeader } from '../components/PageHeader'
 import { Skeleton } from '../components/StateViews'
 import { MarkdownContent } from '../components/MarkdownContent'
@@ -12,7 +12,7 @@ import { useInboxSelection } from '../live/inbox-selection'
 import { useInboxRead } from '../live/inbox-read'
 import { useIssues } from '../hooks/useIssues'
 import { useWorkspace } from '../tabs/store'
-import { useWorkspaces } from '../contexts/WorkspacesContext'
+import { useWorkspaces } from '../contexts/workspaces-context'
 import { readWorkspaceFile, type ReadFileResult } from '../components/workspace/api'
 import type { InboxEntry, InboxDoc } from '../api/inbox'
 
@@ -340,6 +340,7 @@ function DocBlock({
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(defaultExpanded)
   const [result, setResult] = useState<ReadFileResult | null>(null)
+  const [copied, setCopied] = useState(false)
 
   // Fetch on mount: the collapsed card shows a text preview, so we need the
   // content up front. The same `result` then renders in full on expand —
@@ -354,41 +355,100 @@ function DocBlock({
   }, [workspaceId, doc.path])
 
   const preview = useMemo(() => buildDocPreview(result), [result])
+  const markdownActionsAvailable = isMarkdownPath(doc.path) && result?.kind === 'ok'
+
+  const copyMarkdown = async (e: MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation()
+    if (!markdownActionsAvailable) return
+    try {
+      await copyText(result.content)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1400)
+    } catch {
+      setCopied(false)
+    }
+  }
+
+  const downloadMarkdown = (e: MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation()
+    if (!markdownActionsAvailable) return
+    const blob = new Blob([result.content], { type: 'text/markdown;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = fileNameFromPath(doc.path) || 'report.md'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  }
 
   const header = (
-    <div className="px-4 py-3 flex items-center gap-2.5">
-      <ChevronRight
-        size={15}
-        strokeWidth={2}
-        aria-hidden
-        className={`shrink-0 text-text-muted/70 transition-transform ${expanded ? 'rotate-90' : ''}`}
-      />
-      <span className="text-[12px]">📄</span>
-      <span className="flex-1 truncate text-[12px] font-mono text-text-muted">{doc.path}</span>
-      <span className="shrink-0 text-[10px] uppercase tracking-wider text-text-muted/45">
-        {expanded ? t('inbox.docCollapse') : t('inbox.docExpand')}
-      </span>
+    <div className="flex items-center gap-1 bg-bg-tertiary/25 hover:bg-bg-tertiary/50 transition-colors">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+        className="min-w-0 flex-1 px-4 py-3 flex items-center gap-2.5 text-left"
+      >
+        <ChevronRight
+          size={15}
+          strokeWidth={2}
+          aria-hidden
+          className={`shrink-0 text-text-muted/70 transition-transform ${expanded ? 'rotate-90' : ''}`}
+        />
+        <span className="text-[12px]">📄</span>
+        <span className="flex-1 truncate text-[12px] font-mono text-text-muted">{doc.path}</span>
+        <span className="shrink-0 text-[10px] uppercase tracking-wider text-text-muted/45">
+          {expanded ? t('inbox.docCollapse') : t('inbox.docExpand')}
+        </span>
+      </button>
+      {isMarkdownPath(doc.path) && (
+        <div className="shrink-0 flex items-center gap-1 pr-3">
+          <button
+            type="button"
+            onClick={copyMarkdown}
+            disabled={!markdownActionsAvailable}
+            title={copied ? t('inbox.docCopiedMarkdown') : t('inbox.docCopyMarkdown')}
+            aria-label={copied ? t('inbox.docCopiedMarkdown') : t('inbox.docCopyMarkdown')}
+            className="inline-flex h-7 w-7 items-center justify-center rounded text-text-muted/65 transition-colors hover:bg-bg-tertiary hover:text-accent disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-text-muted/65"
+          >
+            {copied ? <Check size={14} strokeWidth={2} /> : <Copy size={14} strokeWidth={1.75} />}
+          </button>
+          <button
+            type="button"
+            onClick={downloadMarkdown}
+            disabled={!markdownActionsAvailable}
+            title={t('inbox.docDownloadMarkdown')}
+            aria-label={t('inbox.docDownloadMarkdown')}
+            className="inline-flex h-7 w-7 items-center justify-center rounded text-text-muted/65 transition-colors hover:bg-bg-tertiary hover:text-accent disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-text-muted/65"
+          >
+            <Download size={14} strokeWidth={1.75} />
+          </button>
+        </div>
+      )}
     </div>
   )
 
   return (
     <div className="rounded-lg border border-border bg-bg/50 overflow-hidden">
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        aria-expanded={expanded}
-        className="w-full text-left bg-bg-tertiary/25 hover:bg-bg-tertiary/50 transition-colors"
-      >
+      <div>
         {header}
         {/* Collapsed: a short text preview so the card reads as openable
          *  content rather than a bare filename. Hidden once expanded (the
          *  full render takes over below). */}
         {!expanded && (
-          <div className="pl-11 pr-4 pb-3 -mt-1.5 text-[12px] leading-relaxed text-text-muted/70 line-clamp-2">
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            className="block w-full text-left bg-bg-tertiary/25 hover:bg-bg-tertiary/50 transition-colors pl-11 pr-4 pb-3 -mt-1.5 text-[12px] leading-relaxed text-text-muted/70"
+          >
+            <span className="line-clamp-2">
             {result === null ? t('common.loading') : preview || t('inbox.docNoPreview')}
-          </div>
+            </span>
+          </button>
         )}
-      </button>
+      </div>
       {expanded && (
         <div className="px-4 py-3 border-t border-border/50">
           {result === null ? (
@@ -400,6 +460,42 @@ function DocBlock({
       )}
     </div>
   )
+}
+
+function isMarkdownPath(path: string): boolean {
+  return /\.(md|markdown|mdx)$/i.test(path)
+}
+
+function fileNameFromPath(path: string): string {
+  return path.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? ''
+}
+
+async function copyText(text: string): Promise<void> {
+  const clipboard = globalThis.navigator?.clipboard
+  try {
+    if (clipboard?.writeText) {
+      await clipboard.writeText(text)
+      return
+    }
+  } catch {
+    // Fall through to the selection-based path below.
+  }
+
+  if (typeof document.execCommand !== 'function') {
+    throw new Error('copy unavailable')
+  }
+
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.setAttribute('readonly', '')
+  ta.style.position = 'fixed'
+  ta.style.left = '-9999px'
+  ta.style.top = '0'
+  document.body.appendChild(ta)
+  ta.select()
+  const ok = document.execCommand('copy')
+  ta.remove()
+  if (!ok) throw new Error('copy failed')
 }
 
 /** Build a short plain-text preview from a fetched doc, for the collapsed
@@ -439,4 +535,3 @@ function formatAbsolute(ts: number): string {
     hour: '2-digit', minute: '2-digit',
   })
 }
-

@@ -9,7 +9,8 @@ import { AutomationPage } from '../pages/AutomationPage'
 import { NewsPage } from '../pages/NewsPage'
 import { MarketPage } from '../pages/MarketPage'
 import { MarketRotationPage } from '../pages/MarketRotationPage'
-import { MarketBoardPage, MARKET_BOARD_TITLES } from '../pages/MarketBoardPage'
+import { MarketBoardPage } from '../pages/MarketBoardPage'
+import { MARKET_BOARD_TITLES } from '../pages/market-board-titles'
 import { MarketDetailPage } from '../pages/MarketDetailPage'
 import { SettingsPage } from '../pages/SettingsPage'
 import { AIProviderPage } from '../pages/AIProviderPage'
@@ -278,7 +279,7 @@ const fileViewerModule: ViewModule<'file-viewer'> = {
 
 // ==================== Aggregate ====================
 
-export const VIEWS = {
+const VIEWS = {
   portfolio: portfolioModule,
   issue: issueModule,
   'issue-detail': issueDetailModule,

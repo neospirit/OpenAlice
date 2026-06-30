@@ -48,12 +48,24 @@ interface ViewProps<K extends ViewKind> {
   visible: boolean
 }
 
+export type ViewLifecycle = 'active-only' | 'keep-mounted'
+
 export interface ViewModule<K extends ViewKind> {
   kind: K
   /** Tab title — derived from spec each render so e.g. channel renames propagate. */
   title(spec: Extract<ViewSpec, { kind: K }>, ctx: TitleCtx): string
   /** URL the active tab projects onto window.location (via replaceState). */
   toUrl(spec: Extract<ViewSpec, { kind: K }>): string
+  /**
+   * Runtime policy while the view's tab is not focused.
+   *
+   * Default is `active-only`: the tab store remembers navigation state, but
+   * the component unmounts when hidden. This matches the post-editor-tabs UI
+   * where tabs are lightweight history/bookmarks, not VS-Code-style runtime
+   * containers. Use `keep-mounted` only for views that truly need a live DOM
+   * while backgrounded.
+   */
+  lifecycle?: ViewLifecycle
   /** The actual page component. Ignores `visible` unless it needs catch-up behaviour. */
   Component: ComponentType<ViewProps<K>>
 }

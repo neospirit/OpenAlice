@@ -1,4 +1,4 @@
-import { LineChart, Line, ResponsiveContainer, YAxis } from 'recharts'
+import { LineChart, Line, YAxis } from 'recharts'
 import type { MacroSeriesCard } from '../../api/reference'
 
 /**
@@ -25,12 +25,10 @@ export function SeriesCard({ card, label, emptyText }: { card: MacroSeriesCard; 
         </div>
         <div className="w-28 h-9">
           {!empty && (
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={card.points} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
-                <YAxis hide domain={['dataMin', 'dataMax']} />
-                <Line type="monotone" dataKey="value" stroke="var(--color-accent)" strokeWidth={1.25} dot={false} isAnimationActive={false} />
-              </LineChart>
-            </ResponsiveContainer>
+            <LineChart width={112} height={36} data={card.points} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
+              <YAxis hide domain={['dataMin', 'dataMax']} />
+              <Line type="monotone" dataKey="value" stroke="var(--color-accent)" strokeWidth={1.25} dot={false} isAnimationActive={false} />
+            </LineChart>
           )}
         </div>
       </div>

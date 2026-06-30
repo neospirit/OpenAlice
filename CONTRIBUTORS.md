@@ -14,9 +14,10 @@ work left a mark on it, you belong here.
   📖 docs · 🛡️ security · 🌍 translation · 💻 code _(rare — reimplemented with
   your consent)_
 - **How to earn one:** open an
-  [issue](https://github.com/TraderAlice/OpenAlice/issues) with an idea, a
-  report, or a design. If it lands in the project, we add you. Think we missed
-  crediting you? Say so in an issue or on Discord — we'll fix it.
+  [issue](https://github.com/TraderAlice/OpenAlice/issues) or PR with an idea,
+  report, design, or implementation proposal. If it lands in the project, we add
+  you. Think we missed crediting you? Say so in an issue or on Discord — we'll
+  fix it.
 - **Standouts (⭐):** a few people go notably above and beyond — high-signal,
   consistent, often right. They sit at the top.
 

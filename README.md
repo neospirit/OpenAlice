@@ -515,8 +515,9 @@ Stuck? Here's the recommended path, roughly in order:
 
 OpenAlice is sharper for the people who dig into it with us — the bugs they
 catch, the ideas they push, the UX edges they notice, the designs and reviews
-they bring. High-signal issues count here: if a report or suggestion changes
-the product, it gets credited. The people who've left a mark:
+they bring. High-signal issues and PR proposals count here: if a report,
+suggestion, or implementation proposal changes the product, it gets credited.
+The people who've left a mark:
 
 <!-- Standouts (⭐) first. Avatars come free from https://github.com/<handle>.png :
      <a href="https://github.com/HANDLE"><img src="https://github.com/HANDLE.png" width="56" height="56" alt="@HANDLE" /></a> -->

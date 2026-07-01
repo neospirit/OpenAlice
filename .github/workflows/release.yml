@@ -200,7 +200,10 @@ jobs:
         # electron-builder picks the target + arch from the host runner (mac
         # arm64). --publish never: build only, softprops does the upload so the
         # release object has one owner.
-        run: pnpm -F @traderalice/desktop exec electron-builder --projectDir ../.. --publish never
+        run: |
+          ulimit -n 10240
+          echo "open files limit: $(ulimit -n)"
+          pnpm -F @traderalice/desktop exec electron-builder --projectDir ../.. --publish never
         env:
           CSC_LINK: ${{ secrets.MACOS_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.MACOS_CSC_KEY_PASSWORD }}

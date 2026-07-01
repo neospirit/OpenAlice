@@ -239,6 +239,8 @@ jobs:
             fs.copyFileSync(sourcePath, path.join(outDir, target))
             console.log(`Created ${target} from ${source}`)
           }
+
+          fs.rmSync(path.join(outDir, 'builder-debug.yml'), { force: true })
           NODE
 
       - name: Attach installer to the release
@@ -272,6 +274,8 @@ jobs:
         env:
           TAG: ${{ needs.release.outputs.tag }}
         run: |
+          rm -f dist/r2-upload/builder-debug.yml
+
           VERSION="${TAG#v}"
           if [[ "$VERSION" != *-* ]]; then
             exit 0
@@ -321,6 +325,22 @@ jobs:
       - name: Verify CDN metadata
         env:
           DOWNLOAD_BASE_URL: ${{ secrets.DOWNLOAD_BASE_URL }}
+          TAG: ${{ needs.release.outputs.tag }}
         run: |
           BASE_URL="${DOWNLOAD_BASE_URL%/}"
-          curl -fsSI "${BASE_URL}/latest-mac.yml"
+          VERSION="${TAG#v}"
+          CHANNEL="latest"
+
+          if [[ "$VERSION" == *-* ]]; then
+            CHANNEL="${VERSION#*-}"
+            CHANNEL="${CHANNEL%%.*}"
+          fi
+
+          if [ "$CHANNEL" = "latest" ]; then
+            MAC_METADATA="latest-mac.yml"
+          else
+            MAC_METADATA="${CHANNEL}-mac.yml"
+          fi
+
+          curl -fsSI "${BASE_URL}/${MAC_METADATA}"
+          curl -fsSI "${BASE_URL}/OpenAlice-${VERSION}-arm64.dmg"

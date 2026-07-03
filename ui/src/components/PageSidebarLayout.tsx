@@ -157,7 +157,7 @@ export function PageSidebarLayout({
           {sidebarPanel}
         </div>
         <ResizeHandle width={width} maxWidth={maxWidth} onPointerDown={beginResize} />
-        <div className="min-w-0 flex-1">
+        <div className="min-h-0 min-w-0 flex flex-1 flex-col">
           {children}
         </div>
       </div>
@@ -178,7 +178,7 @@ export function PageSidebarLayout({
         </button>
         <span className="min-w-0 truncate text-[13px] font-semibold text-text">{title}</span>
       </div>
-      <div className="flex-1 min-h-0">{children}</div>
+      <div className="flex min-h-0 flex-1 flex-col">{children}</div>
 
       <div
         className={`absolute inset-0 z-30 bg-black/40 transition-opacity duration-200 ${

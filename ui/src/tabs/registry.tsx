@@ -22,8 +22,10 @@ import { NewsCollectorPage } from '../pages/NewsCollectorPage'
 import { UTADetailPage } from '../pages/UTADetailPage'
 import { DevPage } from '../pages/DevPage'
 import { InboxPage } from '../pages/InboxPage'
+import { InboxPageShell } from '../pages/InboxPageShell'
 import { TrackedPage } from '../pages/TrackedPage'
 import { ChatLandingPage } from '../pages/ChatLandingPage'
+import { ChatPageShell } from '../pages/ChatPageShell'
 import { WorkspaceListPage } from '../pages/WorkspaceListPage'
 import { WorkspacePage } from '../pages/WorkspacePage'
 import { TemplateCatalogPage } from '../pages/TemplateCatalogPage'
@@ -216,7 +218,11 @@ const inboxModule: ViewModule<'inbox'> = {
   kind: 'inbox',
   title: () => 'Inbox',
   toUrl: () => '/inbox',
-  Component: InboxPage,
+  Component: ({ visible }) => (
+    <InboxPageShell>
+      <InboxPage visible={visible} />
+    </InboxPageShell>
+  ),
 }
 
 const trackedModule: ViewModule<'tracked'> = {
@@ -234,7 +240,11 @@ const chatLandingModule: ViewModule<'chat-landing'> = {
     return tag ? `New session · ${tag}` : 'New session'
   },
   toUrl: () => '/chat',
-  Component: ({ spec }) => <ChatLandingPage spec={spec} />,
+  Component: ({ spec }) => (
+    <ChatPageShell>
+      <ChatLandingPage spec={spec} />
+    </ChatPageShell>
+  ),
 }
 
 const workspaceListModule: ViewModule<'workspace-list'> = {
@@ -263,7 +273,14 @@ const workspaceModule: ViewModule<'workspace'> = {
     const sid = spec.params.sessionId
     return sid ? `${base}/s/${encodeURIComponent(sid)}` : base
   },
-  Component: WorkspacePage,
+  Component: (props) =>
+    props.spec.params.source === 'chat'
+      ? (
+        <ChatPageShell>
+          <WorkspacePage {...props} />
+        </ChatPageShell>
+      )
+      : <WorkspacePage {...props} />,
 }
 
 const templateCatalogModule: ViewModule<'template-catalog'> = {

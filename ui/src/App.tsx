@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { Group, Panel, Separator, usePanelRef } from 'react-resizable-panels'
+import { Group, Panel, usePanelRef } from 'react-resizable-panels'
 import { ActivityBar } from './components/ActivityBar'
+import { ResizableSeparator } from './components/ResizableSeparator'
 import { Sidebar } from './components/Sidebar'
 import { TabHost } from './components/TabHost'
 import { UpdateBanner } from './components/UpdateBanner'
@@ -41,18 +42,19 @@ function useMediaQuery(query: string): boolean {
 }
 
 /**
- * Two breakpoints drive a three-tier responsive shell:
+ * Three breakpoints drive the responsive shell:
  *  - <768  (phone):  rail = drawer (hamburger), sidebar = drawer (drill-in)
- *  - 768–1024 (tablet/narrow): rail = static column, sidebar = drawer
- *    (tap a rail icon to slide it in) — keeps the main pane full-width-
- *    minus-rail so its `md:` content layouts have real room
- *  - ≥1024 (desktop): rail + sidebar both static (classic 3-pane)
- * The middle tier is what kills the old 768–~1000px dead zone where two
- * static left columns (216+200) crushed the main pane and its md:-keyed
- * content (stat grids, tables) overflowed/overlapped.
+ *  - 768–1179 (narrow desktop): rail = compact static icon column. Migrated
+ *    page-owned sidebars stay static here, so the business navigator does not
+ *    disappear just because the app is in a partial-width browser window.
+ *  - ≥1180 (roomy desktop): rail can expand to text labels.
+ *
+ * Legacy AppShell-owned sidebars remain on their old 1024px static breakpoint
+ * until those surfaces are migrated.
  */
 const useIsDesktop = () => useMediaQuery('(min-width: 768px)') // rail static
 const useIsWide = () => useMediaQuery('(min-width: 1024px)') // sidebar static
+const useIsRoomy = () => useMediaQuery('(min-width: 1180px)') // text rail allowed
 
 export function App() {
   return (
@@ -74,6 +76,7 @@ function AppShell() {
   const section = findSectionForActivity(selectedSidebar)
   const isDesktop = useIsDesktop() // ≥768 — rail is a static column
   const isWide = useIsWide() // ≥1024 — sidebar is a static panel
+  const isRoomy = useIsRoomy() // ≥1180 — full text rail is allowed
   const showSidebarPanel = isWide && section != null
 
   // Auto-close the mobile secondary drawer once the user picks a sub-item.
@@ -183,6 +186,7 @@ function AppShell() {
           open={sidebarOpen}
           onClose={() => setSidebarOpen(false)}
           desktopStatic={isDesktop}
+          compactRailForced={isDesktop && !isRoomy}
           sidebarVisible={showSidebarPanel || secondaryOpen}
           onItemActivated={(landedOn) => {
             // Drill-down for any viewport without a static sidebar (<1024):
@@ -235,7 +239,7 @@ function AppShell() {
                   <section.Secondary />
                 </Sidebar>
               </Panel>
-              <Separator className="w-px bg-border/80 hover:bg-accent/40 active:bg-accent/60 transition-colors" />
+              <ResizableSeparator />
             </>
           )}
           <Panel id="main">

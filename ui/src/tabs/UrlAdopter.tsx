@@ -256,11 +256,10 @@ function SetSidebarOnly({ section }: { section: import('./types').ActivitySectio
 }
 
 /**
- * Map a ViewSpec to the ActivitySection whose sidebar should accompany
- * it. URL adoption uses this so a fresh page load / deep link / browser
- * back-forward lands on a screen with the matching sidebar already
- * open — otherwise `selectedSidebar` stays at whatever was persisted
- * (or null on first run), and the page renders without left context.
+ * Map a ViewSpec to the ActivitySection highlighted in the ActivityBar.
+ * Legacy surfaces still use this to open an AppShell-owned secondary
+ * sidebar; migrated surfaces such as Ask Alice keep the highlight but own
+ * their local sidebar inside the page.
  *
  * `uta-detail` is intentionally Portfolio's sidebar: the URL lives
  * under /settings/uta/:id for historical reasons but the page is a
@@ -295,8 +294,8 @@ function specToSection(spec: ViewSpec): ActivitySection {
 /**
  * Compare focused tab against `spec` and openOrFocus only if different —
  * skips redundant store updates on every render. Also activates the
- * matching sidebar so URL-driven navigation (fresh load, deep link,
- * back-forward) lands with the expected left-rail context, not blank.
+ * matching ActivityBar section so URL-driven navigation (fresh load,
+ * deep link, back-forward) lands with the expected navigation context.
  */
 function useAdopt(spec: ViewSpec) {
   const openOrFocus = useWorkspace((state) => state.openOrFocus)

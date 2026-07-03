@@ -20,8 +20,6 @@
  */
 
 import type { ComponentType } from 'react'
-import { ChatChannelListContainer } from './components/ChatChannelListContainer'
-import { InboxSidebar, InboxViewToggle } from './components/InboxSidebar'
 import { TrackedSidebar } from './components/TrackedSidebar'
 import { WorkspacesSidebar } from './components/workspace/WorkspacesSidebar'
 import { PushApprovalPanel } from './components/PushApprovalPanel'
@@ -32,7 +30,7 @@ import { PortfolioSidebar } from './components/PortfolioSidebar'
 import { AutomationSidebar } from './components/AutomationSidebar'
 import type { ActivitySection } from './tabs/types'
 
-type NavTitleKey = 'nav.item.chat' | 'nav.item.inbox' | 'nav.item.tracked' | 'nav.item.workspaces' | 'nav.item.tradingAsGit' | 'nav.item.settings' | 'nav.item.dev' | 'nav.item.market' | 'nav.item.portfolio' | 'nav.item.automation'
+type NavTitleKey = 'nav.item.tracked' | 'nav.item.workspaces' | 'nav.item.tradingAsGit' | 'nav.item.settings' | 'nav.item.dev' | 'nav.item.market' | 'nav.item.portfolio' | 'nav.item.automation'
 
 export interface SidebarSection {
   /** Header title shown at the top of the sidebar. */
@@ -44,23 +42,11 @@ export interface SidebarSection {
 }
 
 /**
- * Activities WITHOUT an entry here are sidebar-less: clicking them in the
- * ActivityBar opens their default tab full-width, no secondary column.
- * (News is the first — its sidebar was a single-row placeholder.)
+ * Activities WITHOUT an entry here do not use the legacy AppShell-owned
+ * secondary column. Some are sidebar-less (Issues, News); newer migrated
+ * surfaces own any local sidebar inside the page itself (Ask Alice, Inbox).
  */
 const SECTION_BY_KEY: Partial<Record<ActivitySection, SidebarSection>> = {
-  // Chat is the workspace-chat shortcut now — the "夺舍" of the Chat
-  // shortcut by chat-template workspaces. Channel creation is no longer
-  // an Action here; that affordance moved to traditional-chat.
-  chat: {
-    titleKey: 'nav.item.chat',
-    Secondary: ChatChannelListContainer,
-  },
-  inbox: {
-    titleKey: 'nav.item.inbox',
-    Secondary: InboxSidebar,
-    Actions: InboxViewToggle,
-  },
   tracked: {
     titleKey: 'nav.item.tracked',
     Secondary: TrackedSidebar,

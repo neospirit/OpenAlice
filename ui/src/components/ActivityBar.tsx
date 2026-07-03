@@ -36,6 +36,8 @@ interface ActivityBarProps {
   onClose: () => void
   /** True once the rail is static (>= md). The compact rail is desktop-only. */
   desktopStatic?: boolean
+  /** Force the static rail into icon-only mode at narrow desktop widths. */
+  compactRailForced?: boolean
   /**
    * Whether the secondary sidebar is actually on screen right now (a static
    * panel on wide, or the open drawer on narrow). Re-clicking the active
@@ -170,7 +172,14 @@ const NAV_SECTIONS: NavSection[] = [
  * lifecycle stages and the section labels are how we'll later
  * communicate that. Mostly-icon view would hide the differentiation.
  */
-export function ActivityBar({ open, onClose, onItemActivated, sidebarVisible = true, desktopStatic = true }: ActivityBarProps) {
+export function ActivityBar({
+  open,
+  onClose,
+  onItemActivated,
+  sidebarVisible = true,
+  desktopStatic = true,
+  compactRailForced = false,
+}: ActivityBarProps) {
   const { t } = useTranslation()
   const selectedSidebar = useWorkspace((state) => state.selectedSidebar)
   const setSidebar = useWorkspace((state) => state.setSidebar)
@@ -181,7 +190,7 @@ export function ActivityBar({ open, onClose, onItemActivated, sidebarVisible = t
   const setCollapsed = useActivityBarCollapse((s) => s.setCollapsed)
   const railCollapsed = useActivityBarCollapse((s) => s.railCollapsed)
   const setRailCollapsed = useActivityBarCollapse((s) => s.setRailCollapsed)
-  const compactRail = railCollapsed && desktopStatic
+  const compactRail = desktopStatic && (compactRailForced || railCollapsed)
 
   return (
     <>
@@ -197,7 +206,7 @@ export function ActivityBar({ open, onClose, onItemActivated, sidebarVisible = t
        *  page with backdrop. Desktop: static column flush left. */}
       <aside
         className={`
-          w-[280px] ${railCollapsed ? 'md:w-[60px]' : 'md:w-[188px]'} h-full flex flex-col shrink-0
+          w-[280px] ${compactRail ? 'md:w-[60px]' : 'md:w-[188px]'} h-full flex flex-col shrink-0
           bg-bg-tertiary
           border-r border-border/80
           fixed z-50 top-0 left-0 transition-[transform,width] duration-200
@@ -263,9 +272,10 @@ export function ActivityBar({ open, onClose, onItemActivated, sidebarVisible = t
                       const sec = activitySectionFor(item.page)
                       const isActive = selectedSidebar === sec
                       const Icon = item.icon
-                      // Sidebar-less activity (no entry in SECTION_BY_KEY):
-                      // pure navigation — clicking opens the default tab
-                      // full-width; no collapse toggle, no secondary drawer.
+                      // No legacy AppShell sidebar entry: either pure
+                      // navigation (Issues/News) or a migrated page-owned
+                      // sidebar (Ask Alice). In both cases the ActivityBar
+                      // only opens the route and keeps the section highlighted.
                       const hasSidebar = findSectionForActivity(sec) != null
                       const handleClick = () => {
                         let landedOn: ActivitySection | null
@@ -285,8 +295,9 @@ export function ActivityBar({ open, onClose, onItemActivated, sidebarVisible = t
                           // activities (Chat, Settings, Trading-as-Git, …) leave
                           // tab focus alone — user picks from the sidebar.
                           if (item.defaultTab) openOrFocus(item.defaultTab)
-                          // Sidebar-less activities report null so mobile
-                          // dismisses instead of opening the secondary drawer.
+                          // Activities without an AppShell sidebar report null
+                          // so mobile dismisses instead of opening the legacy
+                          // secondary drawer.
                           landedOn = hasSidebar ? sec : null
                         }
                         // Let parent decide the mobile transition (drill into
@@ -354,17 +365,19 @@ export function ActivityBar({ open, onClose, onItemActivated, sidebarVisible = t
         {/* Footer — global icon controls pinned to the bottom of the rail. */}
         <div className={`shrink-0 px-4 flex items-center ${compactRail ? 'py-2 md:flex-col md:items-start md:px-4 md:gap-1' : 'border-t border-border py-1.5 justify-between gap-2'}`}>
           <ThemeToggle />
-          <button
-            type="button"
-            onClick={() => setRailCollapsed(!railCollapsed)}
-            title={t(railCollapsed ? 'nav.expandRail' : 'nav.collapseRail')}
-            aria-label={t(railCollapsed ? 'nav.expandRail' : 'nav.collapseRail')}
-            className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-overlay hover:text-text md:flex"
-          >
-            {railCollapsed
-              ? <PanelLeftOpen size={17} strokeWidth={1.75} aria-hidden />
-              : <PanelLeftClose size={17} strokeWidth={1.75} aria-hidden />}
-          </button>
+          {!compactRailForced && (
+            <button
+              type="button"
+              onClick={() => setRailCollapsed(!railCollapsed)}
+              title={t(railCollapsed ? 'nav.expandRail' : 'nav.collapseRail')}
+              aria-label={t(railCollapsed ? 'nav.expandRail' : 'nav.collapseRail')}
+              className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-overlay hover:text-text md:flex"
+            >
+              {railCollapsed
+                ? <PanelLeftOpen size={17} strokeWidth={1.75} aria-hidden />
+                : <PanelLeftClose size={17} strokeWidth={1.75} aria-hidden />}
+            </button>
+          )}
         </div>
       </aside>
     </>

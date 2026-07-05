@@ -32,6 +32,23 @@ interface Window {
         appHome: string
       }>
     }
+    readonly updater?: {
+      getStatus(): Promise<
+        | { phase: 'available'; version?: string; releaseUrl?: string }
+        | { phase: 'downloading'; version?: string; percent?: number }
+        | { phase: 'downloaded'; version: string; releaseUrl: string }
+        | { phase: 'error'; message: string }
+        | null
+      >
+      onStatus(cb: (status:
+        | { phase: 'available'; version?: string; releaseUrl?: string }
+        | { phase: 'downloading'; version?: string; percent?: number }
+        | { phase: 'downloaded'; version: string; releaseUrl: string }
+        | { phase: 'error'; message: string }
+      ) => void): () => void
+      installAndRestart(): Promise<unknown>
+      openRelease(version?: string): Promise<unknown>
+    }
     readonly workspace: {
       listFiles(input: { id: string; path: string }): Promise<{
         path: string

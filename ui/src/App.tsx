@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ActivityBar } from './components/ActivityBar'
 import { TabHost } from './components/TabHost'
+import { DesktopUpdatePrompt } from './components/DesktopUpdatePrompt'
 import { UpdateBanner } from './components/UpdateBanner'
 import { DemoBanner } from './demo/DemoBanner'
 import { DemoAnalytics } from './demo/DemoAnalytics'
@@ -101,6 +102,7 @@ function AppShell() {
       {import.meta.env.VITE_DEMO_MODE && <DemoBanner />}
       {import.meta.env.VITE_DEMO_MODE && <DemoAnalytics />}
       <UpdateBanner />
+      <DesktopUpdatePrompt />
       <div className="flex flex-1 min-h-0">
         <ActivityBar
           open={sidebarOpen}

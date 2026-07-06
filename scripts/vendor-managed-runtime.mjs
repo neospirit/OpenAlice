@@ -92,11 +92,11 @@ async function vendorPi() {
     await writeFile(resolve(piRoot, asset.name), bytes)
   }
 
-  run('npm ci for managed Pi', process.platform === 'win32' ? 'npm.cmd' : 'npm', [
+  run('npm ci for managed Pi', 'npm', [
     'ci',
     '--omit=dev',
     '--ignore-scripts',
-  ], { cwd: piRoot })
+  ], { cwd: piRoot, shell: process.platform === 'win32' })
 
   if (!existsSync(piCliPath)) {
     throw new Error(`managed Pi CLI missing after npm ci: ${piCliPath}`)
@@ -124,8 +124,12 @@ function run(label, command, commandArgs, opts = {}) {
     cwd: opts.cwd ?? repoRoot,
     stdio: 'inherit',
     env: process.env,
+    shell: opts.shell ?? false,
   })
-  if (result.status !== 0) process.exit(result.status ?? 1)
+  if (result.error) {
+    console.error(`[vendor-runtime] failed to start ${command}: ${result.error.message}`)
+  }
+  if (result.status !== 0 || result.error) process.exit(result.status ?? 1)
 }
 
 function readManifest() {

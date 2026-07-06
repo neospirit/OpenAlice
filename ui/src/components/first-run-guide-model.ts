@@ -40,6 +40,15 @@ export function parseFirstRunStepOverride(search: string, enabled: boolean): Fir
   return STEP_OVERRIDE_ALIASES[raw.trim().toLowerCase()] ?? null
 }
 
+export function buildFirstRunGuideAccess(input: {
+  hasUsableAiChain: boolean
+}) {
+  return {
+    canDismiss: input.hasUsableAiChain,
+    maxReachableStepKey: input.hasUsableAiChain ? 'finish' as const : 'ai' as const,
+  }
+}
+
 export function buildFirstRunGuideModel(input: {
   agents: readonly Pick<AgentInfo, 'id' | 'displayName' | 'kind' | 'installed'>[]
   credentials: readonly Pick<CredentialSummary, 'wires'>[]

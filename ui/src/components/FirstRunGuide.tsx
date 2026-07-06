@@ -23,6 +23,7 @@ import { CreateUTADialog } from './uta/CreateUTADialog'
 import { CredentialModal } from './credentials/CredentialModal'
 import {
   FIRST_RUN_STEP_KEYS,
+  buildFirstRunGuideAccess,
   buildFirstRunGuideModel,
   parseFirstRunStepOverride,
 } from './first-run-guide-model'
@@ -186,6 +187,7 @@ export function FirstRunGuide() {
     loaded,
     dismissed: dismissed && !stepOverride,
   }), [agents, dismissed, loaded, state, stepOverride])
+  const guideAccess = useMemo(() => buildFirstRunGuideAccess(model), [model])
   const shouldStartGuide = loaded && (model.shouldShow || !!stepOverride)
   const shouldShowGuide = loaded && !sessionClosed && (sessionStarted || shouldStartGuide)
   const apiKeyPresets = useMemo(() => {
@@ -208,18 +210,22 @@ export function FirstRunGuide() {
     }
   }, [shouldShowGuide])
 
-  const close = useCallback(() => {
+  const close = useCallback((options?: { force?: boolean; persist?: boolean }) => {
+    if (!options?.force && !guideAccess.canDismiss) return false
     setSessionClosed(true)
-    setDismissed(true)
-    try {
-      window.localStorage.setItem(DISMISS_KEY, '1')
-    } catch {
-      // Ignore storage failures; the current session still closes the guide.
+    if (options?.persist !== false) {
+      setDismissed(true)
+      try {
+        window.localStorage.setItem(DISMISS_KEY, '1')
+      } catch {
+        // Ignore storage failures; the current session still closes the guide.
+      }
     }
-  }, [])
+    return true
+  }, [guideAccess.canDismiss])
 
   const openChecklist = () => {
-    close()
+    close({ force: true, persist: guideAccess.canDismiss })
     openOrFocus({ kind: 'onboarding', params: {} })
   }
 
@@ -245,12 +251,16 @@ export function FirstRunGuide() {
   const steps = useMemo(() => {
     const canStartWorkspace = model.hasUsableAiChain
     const modeLabel = capitalize(model.mode)
-    const brokerPrimary = model.needsUTASetup ? 'Add UTA' : `Continue with ${modeLabel}`
-    const brokerSecondary = model.needsUTASetup
-      ? 'Continue in Lite'
+    const brokerPrimary = model.needsUTASetup
+      ? 'Connect broker account'
       : model.mode === 'lite'
-        ? 'Keep Lite'
-        : 'Skip UTA setup'
+        ? 'Continue without UTA'
+        : `Continue with ${modeLabel}`
+    const brokerSecondary = model.needsUTASetup
+      ? 'Continue without UTA'
+      : model.mode === 'lite'
+        ? 'Choose later'
+        : 'Skip broker setup'
     const brokerWriteText = model.mode === 'pro'
       ? 'Controlled by account permissions.'
       : 'Blocked.'
@@ -271,31 +281,38 @@ export function FirstRunGuide() {
         : model.hasManagedPi
           ? 'To run workspace chat, Alice needs an agent runtime and a verified AI key. Pi is already installed here; add one key to continue.'
           : 'To run workspace chat, Alice needs an agent runtime and a verified AI key. Add a key for any installed runtime to continue.'
-      : 'Packaged builds should include a managed Pi runtime. If this appears in a normal install, continue in Lite and check the setup checklist; no broker or account state is touched.'
+      : 'Packaged builds should include a managed Pi runtime. Open the setup checklist to repair the runtime path before continuing.'
+    const aiPrimary = model.hasUsableAiChain
+      ? 'Continue'
+      : model.hasAgentRuntime
+        ? 'Add AI credential'
+        : 'Open setup checklist'
 
     return [
       {
         key: 'lite' as const,
+        navLabel: 'Welcome',
         eyebrow: 'Welcome',
         title: 'OpenAlice is your AI trading workspace.',
-        body: 'Use Alice to research markets, run coding agents, and bring in broker context only when you choose. Setup starts safely in Lite, with UTA disconnected and broker writes blocked.',
+        body: 'Use Alice to research markets and run workspace agents first. Broker accounts stay disconnected until you choose to add them, and Alice cannot place orders in this setup.',
         primary: 'Start setup',
-        secondary: 'Use Lite now',
+        secondary: model.hasUsableAiChain ? 'Start without broker setup' : undefined,
         panelTitle: 'Safe by default',
         panelBody: 'You can use OpenAlice without connecting a broker. Add power step by step when you need it.',
         rows: [
           { icon: <Bot className="h-4 w-4" />, label: 'Workspace agents', value: 'Research and analysis workflows.', tone: model.hasAgentRuntime ? 'ready' as const : 'muted' as const },
-          { icon: <ShieldCheck className="h-4 w-4" />, label: 'Trading mode', value: model.freshLite ? 'Lite by default.' : `${capitalize(model.mode)} active.`, tone: 'ready' as const },
+          { icon: <ShieldCheck className="h-4 w-4" />, label: 'Broker mode', value: model.mode === 'lite' ? 'No broker connection active.' : `${capitalize(model.mode)} active.`, tone: 'ready' as const },
           { icon: <Lock className="h-4 w-4" />, label: 'Broker access', value: model.hasUTA ? 'Configured.' : 'Disconnected until you opt in.', tone: model.hasUTA ? 'ready' as const : 'muted' as const },
         ],
       },
       {
         key: 'ai' as const,
+        navLabel: 'AI access',
         eyebrow: 'Make Alice Useful',
         title: aiTitle,
         body: aiBody,
-        primary: model.hasUsableAiChain ? 'Continue' : 'Add AI credential',
-        secondary: model.hasUsableAiChain ? 'Stay in Lite' : 'Stay in Lite',
+        primary: aiPrimary,
+        secondary: model.hasUsableAiChain ? 'Skip broker setup' : undefined,
         panelTitle: 'Runtime scan',
         panelBody: 'Alice is ready when one row has both a runtime and AI access.',
         rows: [
@@ -305,52 +322,67 @@ export function FirstRunGuide() {
       },
       {
         key: 'broker' as const,
+        navLabel: 'Broker access',
         eyebrow: 'Trading Mode',
-        title: 'Choose how much broker access Alice gets.',
-        body: 'Lite keeps UTA off. Readonly lets Alice include accounts and positions without allowing writes. Pro unlocks broker workflows with permission controls.',
+        title: 'Decide whether to connect a broker account.',
+        body: 'You can keep broker access off and use Alice for research, or connect an account so Alice can read positions. Write access stays blocked unless you later choose Pro permissions.',
         primary: brokerPrimary,
         secondary: brokerSecondary,
-        panelTitle: 'Pick one mode',
+        panelTitle: 'Broker connection',
         panelBody: model.needsUTASetup
-          ? 'Readonly and Pro need at least one UTA. Add one now, or continue in Lite if you want to skip broker setup.'
-          : 'Click a mode below. The selected mode is saved immediately and can be changed later.',
+          ? 'The broker-connected options need a connector first. Connect one now, or continue without UTA and add it later.'
+          : 'Choose whether Alice should connect to a broker account. You can change this later in Settings.',
         rows: [
-          { icon: <Compass className="h-4 w-4" />, label: 'Lite', value: 'No UTA connection.', tone: model.mode === 'lite' ? 'ready' as const : 'muted' as const },
-          { icon: <Lock className="h-4 w-4" />, label: 'Readonly', value: 'Read accounts; block writes.', tone: model.mode === 'readonly' ? 'ready' as const : 'muted' as const },
-          { icon: <GitBranch className="h-4 w-4" />, label: 'Pro', value: 'Use per-account write policy.', tone: model.mode === 'pro' ? 'ready' as const : 'muted' as const },
+          { icon: <Compass className="h-4 w-4" />, label: 'No broker connection', value: 'Use Alice for research; portfolio and trading stay off.', tone: model.mode === 'lite' ? 'ready' as const : 'muted' as const },
+          { icon: <Lock className="h-4 w-4" />, label: 'Read-only broker connection', value: 'Include balances and positions; block orders.', tone: model.mode === 'readonly' ? 'ready' as const : 'muted' as const },
+          { icon: <GitBranch className="h-4 w-4" />, label: 'Permissioned broker workflows', value: 'Use per-account approval policy.', tone: model.mode === 'pro' ? 'ready' as const : 'muted' as const },
         ],
       },
       {
         key: 'finish' as const,
+        navLabel: 'Ready',
         eyebrow: 'Setup Complete',
-        title: canStartWorkspace ? "You're all set." : 'Lite setup is ready.',
+        title: canStartWorkspace ? "You're all set." : 'OpenAlice is ready to open.',
         body: canStartWorkspace
-          ? `OpenAlice is ready with a working AI path and ${modeLabel} trading mode. Broker accounts can stay disconnected until you add them.`
-          : 'Alice is safe to open in Lite. Add an AI credential later when you want workspace chat and automated research.',
-        primary: canStartWorkspace ? 'Start using Alice' : 'Continue in Lite',
+          ? `OpenAlice is ready with a working AI path and ${model.mode === 'lite' ? 'no broker connection' : `${modeLabel} broker access`}. Broker accounts can stay disconnected until you add them.`
+          : 'Alice can open without a broker account. Add an AI credential later when you want workspace chat and automated research.',
+        primary: canStartWorkspace ? 'Start using Alice' : 'Open Alice now',
         secondary: 'Open checklist',
         panelTitle: 'Ready now',
         panelBody: '',
         rows: [
           { icon: <Bot className="h-4 w-4" />, label: 'Workspace chat', value: canStartWorkspace ? 'Ready.' : model.hasAgentRuntime ? 'Needs AI access.' : 'Needs runtime.', tone: canStartWorkspace ? 'ready' as const : 'attention' as const },
-          { icon: <ShieldCheck className="h-4 w-4" />, label: 'Trading mode', value: `${modeLabel} saved.`, tone: 'ready' as const },
+          { icon: <ShieldCheck className="h-4 w-4" />, label: 'Broker mode', value: model.mode === 'lite' ? 'No broker connection.' : `${modeLabel} saved.`, tone: 'ready' as const },
           { icon: <WalletCards className="h-4 w-4" />, label: 'Broker writes', value: brokerWriteText, tone: model.mode === 'pro' ? 'muted' as const : 'ready' as const },
         ],
       },
     ]
   }, [model])
 
+  const maxReachableStepIndex = useMemo(() => {
+    const index = steps.findIndex((step) => step.key === guideAccess.maxReachableStepKey)
+    return index === -1 ? 0 : index
+  }, [guideAccess.maxReachableStepKey, steps])
+
   useEffect(() => {
-    if (stepIndex >= steps.length) setStepIndex(steps.length - 1)
-  }, [stepIndex, steps.length])
+    const lastStepIndex = steps.length - 1
+    const nextMax = Math.min(lastStepIndex, maxReachableStepIndex)
+    if (stepIndex > nextMax) {
+      setStepIndex(nextMax)
+    } else if (stepIndex >= steps.length) {
+      setStepIndex(lastStepIndex)
+    }
+  }, [maxReachableStepIndex, stepIndex, steps.length])
 
   if (!shouldShowGuide) return null
 
-  const activeStep = steps[stepIndex]
+  const activeStepIndex = Math.max(0, Math.min(stepIndex, maxReachableStepIndex, steps.length - 1))
+  const activeStep = steps[activeStepIndex]
 
   const goToStep = (nextIndex: number) => {
-    setDirection(nextIndex > stepIndex ? 'forward' : 'back')
-    setStepIndex(Math.max(0, Math.min(steps.length - 1, nextIndex)))
+    const targetIndex = Math.max(0, Math.min(steps.length - 1, maxReachableStepIndex, nextIndex))
+    setDirection(targetIndex > activeStepIndex ? 'forward' : 'back')
+    setStepIndex(targetIndex)
   }
 
   const continueInLite = async () => {
@@ -360,9 +392,9 @@ export function FirstRunGuide() {
       await setTradingMode('lite')
       await refreshGuideState()
       setShowUTAForm(false)
-      goToStep(stepIndex + 1)
+      goToStep(activeStepIndex + 1)
     } catch (err) {
-      setModeChoiceError(err instanceof Error ? err.message : 'Failed to switch to Lite')
+      setModeChoiceError(err instanceof Error ? err.message : 'Failed to continue without UTA')
     } finally {
       setUtaEscapeSaving(false)
     }
@@ -382,17 +414,18 @@ export function FirstRunGuide() {
         setShowUTAForm(true)
         return
       }
-      goToStep(stepIndex + 1)
+      goToStep(activeStepIndex + 1)
       return
     }
     if (activeStep.key === 'finish') {
       close()
       return
     }
-    goToStep(stepIndex + 1)
+    goToStep(activeStepIndex + 1)
   }
 
   const runSecondary = () => {
+    if (!activeStep.secondary) return
     if (activeStep.key === 'finish') {
       openChecklist()
       return
@@ -405,7 +438,7 @@ export function FirstRunGuide() {
       void continueInLite()
       return
     }
-    goToStep(stepIndex + 1)
+    goToStep(activeStepIndex + 1)
   }
 
   return (
@@ -421,14 +454,16 @@ export function FirstRunGuide() {
                 Start safe. Add power only when you need it.
               </div>
             </div>
-            <button
-              type="button"
-              onClick={close}
-              aria-label="Close onboarding"
-              className="absolute right-0 top-0 flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-overlay hover:text-text"
-            >
-              <X className="h-4 w-4" />
-            </button>
+            {guideAccess.canDismiss && (
+              <button
+                type="button"
+                onClick={() => close()}
+                aria-label="Close onboarding"
+                className="absolute right-0 top-0 flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-overlay hover:text-text"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
           </header>
 
           <main className="flex min-h-0 flex-1 flex-col py-3 sm:py-6">
@@ -492,26 +527,39 @@ export function FirstRunGuide() {
               className="mt-3 flex shrink-0 flex-col gap-3 border-t border-border pt-3 sm:mt-4 sm:flex-row sm:items-center sm:justify-between sm:pt-4"
               data-testid="first-run-guide-footer"
             >
-              <div className="flex items-center gap-2">
-                {steps.map((step, index) => (
-                  <button
-                    key={step.key}
-                    type="button"
-                    onClick={() => goToStep(index)}
-                    className={`h-2.5 rounded-full transition-all ${
-                      index === stepIndex ? 'w-8 bg-accent' : 'w-2.5 bg-bg-tertiary hover:bg-text-muted/50'
-                    }`}
-                    aria-label={`Go to onboarding step ${index + 1}`}
-                    aria-current={index === stepIndex ? 'step' : undefined}
-                  />
-                ))}
+              <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
+                <div className="flex items-center gap-2">
+                  {steps.map((step, index) => {
+                    const locked = index > maxReachableStepIndex
+                    return (
+                      <button
+                        key={step.key}
+                      type="button"
+                      onClick={() => goToStep(index)}
+                      disabled={locked}
+                      className={`h-2.5 rounded-full transition-all ${
+                          index === activeStepIndex
+                            ? 'w-8 bg-accent'
+                            : locked
+                              ? 'w-2.5 cursor-default bg-bg-tertiary/50 opacity-60'
+                              : 'w-2.5 bg-bg-tertiary hover:bg-text-muted/50'
+                        }`}
+                        aria-label={`Go to ${step.navLabel}`}
+                        aria-current={index === activeStepIndex ? 'step' : undefined}
+                      />
+                    )
+                  })}
+                </div>
+                <div className="min-w-0 text-[11px] font-medium uppercase tracking-wide text-text-muted">
+                  Step {activeStepIndex + 1} of {steps.length} · {activeStep.navLabel}
+                </div>
               </div>
 
               <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-2 sm:flex sm:items-center">
                 <button
                   type="button"
-                  onClick={() => goToStep(stepIndex - 1)}
-                  disabled={stepIndex === 0}
+                  onClick={() => goToStep(activeStepIndex - 1)}
+                  disabled={activeStepIndex === 0}
                   className="rounded-md border border-border bg-bg px-3 py-2 text-[13px] font-medium text-text-muted transition-colors hover:border-accent/50 hover:text-accent disabled:cursor-default disabled:opacity-40 disabled:hover:border-border disabled:hover:text-text-muted"
                 >
                   Back
@@ -524,13 +572,15 @@ export function FirstRunGuide() {
                   <span className="min-w-0 truncate">{activeStep.primary}</span>
                   <ArrowRight className="h-4 w-4 shrink-0" />
                 </button>
-                <button
-                  type="button"
-                  onClick={runSecondary}
-                  className="col-span-2 rounded-md px-3 py-2 text-[12px] font-medium text-text-muted transition-colors hover:bg-overlay hover:text-text sm:col-span-1"
-                >
-                  {activeStep.secondary}
-                </button>
+                {activeStep.secondary && (
+                  <button
+                    type="button"
+                    onClick={runSecondary}
+                    className="col-span-2 rounded-md px-3 py-2 text-[12px] font-medium text-text-muted transition-colors hover:bg-overlay hover:text-text sm:col-span-1"
+                  >
+                    {activeStep.secondary}
+                  </button>
+                )}
               </div>
             </footer>
           </main>
@@ -555,7 +605,7 @@ export function FirstRunGuide() {
               dismissed: false,
             })
             if (activeStep.key === 'ai' && nextModel.hasUsableAiChain) {
-              goToStep(stepIndex + 1)
+              goToStep(activeStepIndex + 1)
             }
           }}
         />
@@ -569,18 +619,18 @@ export function FirstRunGuide() {
             await refreshGuideState()
             setShowUTAForm(false)
             if (activeStep.key === 'broker') {
-              goToStep(stepIndex + 1)
+              goToStep(activeStepIndex + 1)
             }
           }}
           onSave={async (uta) => {
             const created = await saveCreatedUTA(uta)
             if (activeStep.key === 'broker') {
-              goToStep(stepIndex + 1)
+              goToStep(activeStepIndex + 1)
             }
             return created
           }}
           escapeAction={{
-            label: 'Continue in Lite',
+            label: 'Continue without UTA',
             onClick: continueInLite,
             disabled: utaEscapeSaving,
           }}
@@ -658,20 +708,20 @@ function TradingModeChoices({
     {
       mode: 'lite',
       icon: <Compass className="h-4 w-4" />,
-      label: 'Lite',
-      description: 'No UTA connection.',
+      label: 'Research only',
+      description: 'No broker connector. Portfolio and trading stay off.',
     },
     {
       mode: 'readonly',
       icon: <Lock className="h-4 w-4" />,
-      label: 'Readonly',
-      description: 'Read accounts; block writes.',
+      label: 'Read-only broker',
+      description: 'Read balances and positions; block orders.',
     },
     {
       mode: 'pro',
       icon: <GitBranch className="h-4 w-4" />,
-      label: 'Pro',
-      description: 'Use per-account write policy.',
+      label: 'Pro broker',
+      description: 'Use per-account approval policy.',
     },
   ]
   const disabled = envLocked || saving !== null
@@ -679,7 +729,7 @@ function TradingModeChoices({
     <div className="mt-4 sm:mt-5">
       <div className="mb-3 inline-flex items-center gap-2 rounded-md border border-accent/25 bg-accent/10 px-2.5 py-1.5 text-[11px] font-medium text-accent">
         <MousePointerClick className="h-3.5 w-3.5" />
-        Select an OpenAlice mode
+        Choose broker access
       </div>
       <div className="grid gap-2">
         {choices.map((choice) => {
@@ -718,7 +768,7 @@ function TradingModeChoices({
                   <span className={`mt-1.5 inline-flex text-[11px] font-medium ${
                     active ? 'text-accent' : 'text-text-muted/70'
                   }`}>
-                    {active ? 'Selected' : 'Click to select'}
+                    {active ? 'Selected' : 'Choose this option'}
                   </span>
                 )}
               </span>
@@ -735,7 +785,7 @@ function TradingModeChoices({
         {envLocked ? (
           <span className="inline-flex items-center gap-1.5">
             <AlertTriangle className="h-3.5 w-3.5 text-yellow-500" />
-            Trading mode is locked by the current environment.
+            Broker mode is locked by the current environment.
           </span>
         ) : (
           `Current source: ${modeSource}`

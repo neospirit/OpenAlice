@@ -137,15 +137,15 @@ export function CreateUTADialog({
           return
         }
       }
-      setError(err instanceof Error ? err.message : 'Failed to save UTA')
+      setError(err instanceof Error ? err.message : 'Failed to save connector')
       setSaving(false)
     }
   }
 
   const headerLabel =
-    step === 'pick'   ? 'New UTA · Pick Platform' :
-    step === 'config' ? `New UTA · Configure ${preset?.label ?? ''}` :
-                        `New UTA · Test ${preset?.label ?? ''}`
+    step === 'pick'   ? 'Connect Broker · Pick Platform' :
+    step === 'config' ? `Connect Broker · Configure ${preset?.label ?? ''}` :
+                        `Connect Broker · Test ${preset?.label ?? ''}`
 
   const escapeButton = escapeAction ? (
     <button
@@ -165,7 +165,7 @@ export function CreateUTADialog({
           <h3 className="text-[14px] font-semibold text-text truncate">{headerLabel}</h3>
           <StepDots current={step} />
         </div>
-        <button onClick={onClose} className="text-text-muted hover:text-text p-1 transition-colors" aria-label="Close UTA setup">
+        <button onClick={onClose} className="text-text-muted hover:text-text p-1 transition-colors" aria-label="Close broker setup">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
             <path d="M18 6L6 18M6 6l12 12" />
           </svg>
@@ -210,7 +210,7 @@ export function CreateUTADialog({
                 <div className="min-w-0">
                   <div className="text-[12px] font-medium text-text">Use as data source</div>
                   <div className="text-[11px] text-text-muted leading-relaxed">
-                    Include this UTA in K-line and contract discovery.
+                    Include this connector in K-line and contract discovery.
                   </div>
                 </div>
                 <Toggle size="sm" checked={asVendor} onChange={setAsVendor} />
@@ -264,7 +264,7 @@ export function CreateUTADialog({
               </button>
             ) : testResult?.success ? (
               <button onClick={handleSave} disabled={saving} className="btn-primary">
-                {saving ? 'Saving...' : 'Save UTA'}
+                {saving ? 'Saving...' : 'Save connector'}
               </button>
             ) : (
               <span className="text-[11px] text-text-muted">Fix the config and try again</span>
@@ -328,7 +328,7 @@ function BrokerConflictPanel({ existing, onOpenExisting }: {
       </div>
       <div className="rounded-md border border-yellow-400/30 bg-yellow-400/5 px-3 py-2.5">
         <p className="text-[12px] text-text leading-relaxed">
-          Another UTA already exists for this broker (same identity-defining credentials).
+          Another broker connector already exists for this broker (same identity-defining credentials).
           Re-using the same key from a separate account would double-count its positions in
           aggregate views.
         </p>
@@ -337,9 +337,9 @@ function BrokerConflictPanel({ existing, onOpenExisting }: {
         </p>
       </div>
       <p className="text-[11px] text-text-muted">
-        Click <strong className="text-text">Open existing</strong> to use it, or <strong className="text-text">← Back</strong> to point this UTA at a different account.
+        Click <strong className="text-text">Open existing</strong> to use it, or <strong className="text-text">← Back</strong> to point this connector at a different account.
       </p>
-      <button onClick={onOpenExisting} className="btn-secondary w-full">Open existing UTA</button>
+      <button onClick={onOpenExisting} className="btn-secondary w-full">Open existing connector</button>
     </div>
   )
 }

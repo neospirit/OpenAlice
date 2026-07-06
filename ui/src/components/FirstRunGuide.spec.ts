@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildFirstRunGuideModel, parseFirstRunStepOverride } from './first-run-guide-model'
+import {
+  buildFirstRunGuideAccess,
+  buildFirstRunGuideModel,
+  parseFirstRunStepOverride,
+} from './first-run-guide-model'
 import type { TradingServiceStatus } from '../api/trading'
 
 const liteStatus: TradingServiceStatus = {
@@ -131,5 +135,21 @@ describe('parseFirstRunStepOverride', () => {
     expect(parseFirstRunStepOverride('?onboardingStep=uta', true)).toBe('broker')
     expect(parseFirstRunStepOverride('?step=checklist', true)).toBe('finish')
     expect(parseFirstRunStepOverride('?step=unknown', true)).toBeNull()
+  })
+})
+
+describe('buildFirstRunGuideAccess', () => {
+  it('keeps onboarding locked on AI access until a usable runtime chain exists', () => {
+    expect(buildFirstRunGuideAccess({ hasUsableAiChain: false })).toEqual({
+      canDismiss: false,
+      maxReachableStepKey: 'ai',
+    })
+  })
+
+  it('allows broker setup and dismissal once a usable AI chain exists', () => {
+    expect(buildFirstRunGuideAccess({ hasUsableAiChain: true })).toEqual({
+      canDismiss: true,
+      maxReachableStepKey: 'finish',
+    })
   })
 })

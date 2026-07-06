@@ -46,6 +46,13 @@ afterEach(() => {
 })
 
 describe('CreateUTADialog', () => {
+  it('uses broker-facing setup labels instead of internal UTA labels', () => {
+    setup()
+
+    expect(screen.getByText('Connect Broker · Pick Platform')).toBeTruthy()
+    expect(screen.getByLabelText('Close broker setup')).toBeTruthy()
+  })
+
   it('can default a readonly onboarding account to read-only', () => {
     setup({ initialReadOnly: true })
 
@@ -58,9 +65,9 @@ describe('CreateUTADialog', () => {
 
   it('surfaces an onboarding escape action from every wizard step', () => {
     const onEscape = vi.fn()
-    setup({ escapeAction: { label: 'Continue in Lite', onClick: onEscape } })
+    setup({ escapeAction: { label: 'Continue without UTA', onClick: onEscape } })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Continue in Lite' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue without UTA' }))
 
     expect(onEscape).toHaveBeenCalled()
   })

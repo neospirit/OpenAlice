@@ -295,9 +295,11 @@ body {
    tuned empirically; candidate prose tier for the semantic scale. */
 .markdown-content {
   font-size: 15px;
+  overflow-wrap: break-word;
 }
 .markdown-content p {
   margin: 0.5em 0;
+  text-wrap: pretty;
 }
 .markdown-content p:first-child {
   margin-top: 0;
@@ -322,6 +324,9 @@ body {
   background: var(--color-bg-tertiary);
   padding: 2px 6px;
   border-radius: 4px;
+  overflow-wrap: anywhere;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
 }
 .markdown-content ul,
 .markdown-content ol {
@@ -337,15 +342,20 @@ body {
 }
 .markdown-content li {
   margin: 0.25em 0;
+  text-wrap: pretty;
 }
 .markdown-content li::marker {
   color: var(--color-text-muted);
 }
 /* Obsidian-style [[name]] wikilinks → clickable entity references. */
 .markdown-content a.wikilink {
+  display: inline-block;
+  max-width: 100%;
   color: var(--color-accent);
   cursor: pointer;
   text-decoration: none;
+  vertical-align: baseline;
+  overflow-wrap: anywhere;
   border-bottom: 1px dashed color-mix(in srgb, var(--color-accent) 45%, transparent);
 }
 .markdown-content a.wikilink:hover {
@@ -379,6 +389,7 @@ body {
 .markdown-content a {
   color: var(--color-accent);
   text-decoration: none;
+  overflow-wrap: anywhere;
 }
 .markdown-content a:hover {
   text-decoration: underline;

@@ -10,11 +10,14 @@
 
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, rm } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 
 import { cliBinPath } from '@/core/paths.js';
 import { readCredentials, readIssueDefaultAgent, readWorkspaceDefaultAgent } from '@/core/config.js';
+import {
+  readQuickChatPreferences,
+  rememberRecentChatWorkspace,
+} from '@/core/preferences.js';
 
 import { claudeAdapter } from './adapters/claude.js';
 import { codexAdapter } from './adapters/codex.js';
@@ -70,7 +73,10 @@ import {
   credentialToWorkspaceAiCred,
   resolveInjectionModel,
 } from './credential-injection.js';
-import { injectWorkspaceContext } from './context-injector.js';
+import {
+  ChatWorkspaceResolver,
+  type ChatWorkspaceResolution,
+} from './chat-workspace-resolver.js';
 
 /** Max concurrent in-flight headless tasks — backstop against unbounded spawn. */
 const MAX_CONCURRENT_HEADLESS = 8;
@@ -122,6 +128,8 @@ export interface WorkspaceService {
   readonly creator: WorkspaceCreator;
   readonly pool: SessionPool;
   readonly transcriptWatcher: TranscriptWatcher;
+  /** Resolve the preferred/recent durable Chat Workspace, creating one starter when absent. */
+  resolveOrCreateChatWorkspace(preferredWorkspaceId?: string | null): Promise<ChatWorkspaceResolution>;
   resolveAdapter(meta: WorkspaceMeta, agentId?: string): CliAdapter;
   publicMeta(w: WorkspaceMeta): Promise<unknown>;
   /**
@@ -182,8 +190,8 @@ export interface WorkspaceService {
     readonly snapshot: AgentRuntimeReadinessSnapshot;
   };
   /**
-   * Run real headless readiness probes for one or all agent runtimes. Uses
-   * launcher-owned scratch dirs, never registered workspaces or user projects.
+   * Run real headless readiness probes for one or all agent runtimes in the
+   * durable Chat Workspace that also carries onboarding and later Quick Chat.
    */
   probeAgentRuntimeReadiness(agentId?: string): Promise<AgentRuntimeReadinessSnapshot>;
   /**
@@ -329,6 +337,11 @@ export async function createWorkspaceService(opts: CreateWorkspaceServiceOptions
     bootstrapTimeoutMs: config.bootstrapTimeoutMs,
     registry,
     logger: launcherLogger.child({ scope: 'creator' }),
+  });
+  const chatWorkspaceResolver = new ChatWorkspaceResolver({
+    registry,
+    sessionRegistry,
+    creator,
   });
 
   const transcriptWatcher = new TranscriptWatcher(
@@ -497,28 +510,51 @@ export async function createWorkspaceService(opts: CreateWorkspaceServiceOptions
     return 'global-config';
   };
 
-  const prepareRuntimeReadinessWorkspace = async (adapter: CliAdapter): Promise<WorkspaceMeta> => {
-    const id = `__runtime_readiness_${adapter.id}`;
-    const dir = join(config.launcherRoot, 'state', 'runtime-readiness', adapter.id);
-    await rm(dir, { recursive: true, force: true });
-    await mkdir(dir, { recursive: true });
+  const resolveOrCreateChatWorkspaceMethod = (
+    preferredWorkspaceId?: string | null,
+  ): Promise<ChatWorkspaceResolution> =>
+    chatWorkspaceResolver.resolveOrCreate(preferredWorkspaceId);
 
-    const template = templates.get('chat');
-    if (template) {
-      await injectWorkspaceContext({ template, wsId: id, dir });
-    }
-    if (adapter.bootstrap) {
-      await adapter.bootstrap({ wsId: id, cwd: dir, launcherRepoRoot: config.launcherRepoRoot });
-    }
+  let runtimeReadinessWorkspaceInFlight: Promise<WorkspaceMeta> | null = null;
 
-    return {
-      id,
-      tag: id,
-      dir,
-      createdAt: new Date().toISOString(),
-      template: 'chat',
-      agents: [adapter.id],
+  const resolveRuntimeReadinessWorkspace = (): Promise<WorkspaceMeta> => {
+    if (runtimeReadinessWorkspaceInFlight) return runtimeReadinessWorkspaceInFlight;
+    const resolution = (async () => {
+      const preferences = await readQuickChatPreferences().catch((error) => {
+        launcherLogger.warn('agent_runtime_readiness.preference_read_failed', { error });
+        return null;
+      });
+      const target = await resolveOrCreateChatWorkspaceMethod(
+        preferences?.recentChatWorkspaceId,
+      );
+      if (!target.ok) {
+        throw new Error(`Chat workspace unavailable: ${target.message}`);
+      }
+      await rememberRecentChatWorkspace(target.workspace.id).catch((error) => {
+        launcherLogger.warn('agent_runtime_readiness.preference_write_failed', { error });
+      });
+      return target.workspace;
+    })();
+    runtimeReadinessWorkspaceInFlight = resolution;
+    const clearInFlight = () => {
+      if (runtimeReadinessWorkspaceInFlight === resolution) {
+        runtimeReadinessWorkspaceInFlight = null;
+      }
     };
+    void resolution.then(clearInFlight, clearInFlight);
+    return resolution;
+  };
+
+  const prepareRuntimeReadinessWorkspace = async (adapter: CliAdapter): Promise<WorkspaceMeta> => {
+    const workspace = await resolveRuntimeReadinessWorkspace();
+    if (adapter.bootstrap) {
+      await adapter.bootstrap({
+        wsId: workspace.id,
+        cwd: workspace.dir,
+        launcherRepoRoot: config.launcherRepoRoot,
+      });
+    }
+    return workspace;
   };
 
   const writeFirstCompatibleRuntimeCredential = async (
@@ -547,36 +583,43 @@ export async function createWorkspaceService(opts: CreateWorkspaceServiceOptions
     options: { injectCredential?: boolean } = {},
   ) => {
     const ws = await prepareRuntimeReadinessWorkspace(adapter);
-    try {
-      if (options.injectCredential) {
-        const wroteCredential = await writeFirstCompatibleRuntimeCredential(adapter, ws.dir);
-        if (!wroteCredential) return null;
+    let effectiveSource = source;
+    if (!options.injectCredential && adapter.readAiConfig) {
+      try {
+        if (await adapter.readAiConfig(ws.dir)) effectiveSource = 'workspace-override';
+      } catch (error) {
+        launcherLogger.warn('agent_runtime_readiness.workspace_config_read_failed', {
+          agent: adapter.id,
+          error,
+        });
       }
-      const { cwd, env } = composeSpawnInputs(ws, adapter, undefined);
-      const command = adapter.composeHeadlessCommand?.(
-        config.command,
-        { cwd, env },
-        RUNTIME_READINESS_PROMPT,
-      );
-      if (!command) return null;
-      const result = await runHeadlessTask({
-        command,
-        cwd,
-        env,
-        timeoutMs: RUNTIME_READINESS_TIMEOUT_MS,
-        logger: launcherLogger.child({ scope: 'runtime-readiness', agent: adapter.id }),
-        allowShellShim: true,
-        ...(adapter.extractHeadlessSessionId
-          ? { extractSessionId: adapter.extractHeadlessSessionId.bind(adapter) }
-          : {}),
-        ...(adapter.extractHeadlessAssistantText
-          ? { extractAssistantText: adapter.extractHeadlessAssistantText.bind(adapter) }
-          : {}),
-      });
-      return { result, source };
-    } finally {
-      await rm(ws.dir, { recursive: true, force: true }).catch(() => {});
     }
+    if (options.injectCredential) {
+      const wroteCredential = await writeFirstCompatibleRuntimeCredential(adapter, ws.dir);
+      if (!wroteCredential) return null;
+    }
+    const { cwd, env } = composeSpawnInputs(ws, adapter, undefined);
+    const command = adapter.composeHeadlessCommand?.(
+      config.command,
+      { cwd, env },
+      RUNTIME_READINESS_PROMPT,
+    );
+    if (!command) return null;
+    const result = await runHeadlessTask({
+      command,
+      cwd,
+      env,
+      timeoutMs: RUNTIME_READINESS_TIMEOUT_MS,
+      logger: launcherLogger.child({ scope: 'runtime-readiness', agent: adapter.id }),
+      allowShellShim: true,
+      ...(adapter.extractHeadlessSessionId
+        ? { extractSessionId: adapter.extractHeadlessSessionId.bind(adapter) }
+        : {}),
+      ...(adapter.extractHeadlessAssistantText
+        ? { extractAssistantText: adapter.extractHeadlessAssistantText.bind(adapter) }
+        : {}),
+    });
+    return { result, source: effectiveSource };
   };
 
   const syntheticRuntimeReadinessFailure = (message: string): HeadlessTaskResult => ({
@@ -1289,6 +1332,7 @@ export async function createWorkspaceService(opts: CreateWorkspaceServiceOptions
     creator,
     pool,
     transcriptWatcher,
+    resolveOrCreateChatWorkspace: resolveOrCreateChatWorkspaceMethod,
     resolveAdapter,
     publicMeta,
     detectAgents,

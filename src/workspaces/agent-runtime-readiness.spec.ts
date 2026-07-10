@@ -50,6 +50,11 @@ describe('agent runtime readiness helpers', () => {
     expect(
       classifyRuntimeReadinessFailure(result({ stderrTail: 'missing API key provider config' })),
     ).toBe('provider_required');
+    expect(
+      classifyRuntimeReadinessFailure(result({
+        stderrTail: 'WARN plugin config ignored; model gpt-next is unsupported by this CLI version',
+      })),
+    ).toBe('failed');
     expect(classifyRuntimeReadinessFailure(result({ stderrTail: 'boom' }))).toBe('failed');
   });
 

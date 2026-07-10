@@ -172,7 +172,7 @@ export function classifyRuntimeReadinessFailure(
   if (/\b(unauthorized|unauthorised|forbidden|401|403|oauth|log in|login|sign in|signin|auth|authentication|not authenticated)\b/.test(text)) {
     return 'auth_required';
   }
-  if (/(api[_ -]?key|provider|model|base[_ -]?url|configuration|config|missing key|no key|no provider|openai_api_key|anthropic_api_key)/.test(text)) {
+  if (/(api[_ -]?key|base[_ -]?url|missing key|no key|no provider|missing provider|provider (?:is )?required|missing model|no model configured|model (?:is )?required|openai_api_key|anthropic_api_key)/.test(text)) {
     return 'provider_required';
   }
   if (result.exitCode !== 0) return 'failed';

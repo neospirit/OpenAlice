@@ -589,9 +589,38 @@ the whole reason we don't merge external code. Credit humans via the
 trailer (`Suggested-by:` / `Reported-by:` / `Reviewed-by: @handle`). Claude's
 `Co-Authored-By:` stays as-is (an AI asserts no copyright).
 
-### Two collaboration modes — pick the right one first
+### Two delivery modes — decide merge authority first
 
-The whole workflow forks on one question:
+Delivery mode answers **who is controlling the next action** and therefore
+whether a validated PR should merge now. It is separate from branch topology:
+either delivery mode can run on a solo branch or through the shared-local
+topology described below.
+
+| Delivery mode | Trigger | PR behavior |
+|---|---|---|
+| **Serial / interactive** | Default for face-to-face work: the user gives a concrete request, reviews reasoning as the work progresses, and can steer each next step | Branch from current `dev`, implement and verify, open a PR to `dev`, monitor checks, merge when green unless the user says to pause, then delete the merged feature branch and return to updated `dev` |
+| **Parallel / contribution** | Only when explicitly activated with `/goal` or a direct instruction to autonomously find and contribute improvements | For each coherent contribution, branch from latest `dev`, implement and verify, open a PR to `dev`, **do not merge it**, return to `dev`, and continue. Keep each unmerged feature branch until its PR is accepted or deliberately abandoned |
+
+Rules for choosing and switching modes:
+
+- **Default to serial.** A large task, a list of ideas, “keep going,” or a
+  terminal condition does not silently grant parallel contribution mode.
+- Serial mode treats the PR as the integration carrier, not a review pause.
+  The agent should still explain the design and validation, but once the user
+  has stayed in the loop and checks are green, completing the merge is part of
+  the task.
+- Parallel mode converts acceptance into a later PR-review queue. Publishing a
+  PR never implies approval to merge it, and autonomous exploration does not
+  broaden authority beyond the stated goal.
+- A mode change should be explicit and prospective. Do not retroactively merge
+  the open PR queue when a later interactive request happens to arrive.
+- The branch commands above describe the solo topology. When several sessions
+  share `local`, follow the shared-local delivery-branch exception below and
+  never switch the checkout out from under another session.
+
+### Two branch topologies — pick the safe checkout shape
+
+Branch topology answers a different question: who shares this checkout?
 
 | Mode | Who's working on this branch | Where |
 |---|---|---|
@@ -609,7 +638,7 @@ in local worktrees**. Spinning up extra local worktrees for parallelism
 costs more in `pnpm install` / `data/` duplication / port juggling than
 it saves. Hand parallel tracks off to cloud Claude sessions.
 
-### Branch Safety Rules (apply to both modes)
+### Branch Safety Rules (apply to both delivery modes and branch topologies)
 
 - **Never commit directly to `master`.** If a session opens and finds
   `HEAD` is `master`, assume you are on the stable user-facing lane and ask

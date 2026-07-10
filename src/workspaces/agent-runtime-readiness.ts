@@ -3,7 +3,7 @@ import type { CliAdapter } from './cli-adapter.js';
 import type { HeadlessTaskResult } from './headless-task.js';
 
 export const RUNTIME_READINESS_PROMPT =
-  'Reply exactly with OPENALICE_READY and no extra words.';
+  'Reply with a short greeting. Do not use tools.';
 
 export const RUNTIME_READINESS_TIMEOUT_MS = 45_000;
 
@@ -14,6 +14,7 @@ export type AgentRuntimeReadinessStatus =
   | 'not_installed'
   | 'auth_required'
   | 'provider_required'
+  | 'output_unrecognized'
   | 'timeout'
   | 'failed';
 
@@ -164,7 +165,7 @@ export function failedRuntimeReadinessRow(opts: {
 }
 
 export function classifyRuntimeReadinessFailure(
-  result: Pick<HeadlessTaskResult, 'killed' | 'exitCode' | 'stdoutTail' | 'stderrTail'>,
+  result: Pick<HeadlessTaskResult, 'killed' | 'exitCode' | 'stdoutTail' | 'stderrTail' | 'assistantText'>,
 ): AgentRuntimeReadinessStatus {
   if (result.killed) return 'timeout';
   const text = `${result.stderrTail}\n${result.stdoutTail}`.toLowerCase();
@@ -175,12 +176,13 @@ export function classifyRuntimeReadinessFailure(
     return 'provider_required';
   }
   if (result.exitCode !== 0) return 'failed';
+  if (!result.assistantText?.trim()) return 'output_unrecognized';
   return 'failed';
 }
 
 export function runtimeProbeSucceeded(result: HeadlessTaskResult): boolean {
   if (result.killed || result.exitCode !== 0) return false;
-  return `${result.stdoutTail}\n${result.stderrTail}`.trim().length > 0;
+  return Boolean(result.assistantText?.trim());
 }
 
 function repairTargetForStatus(
@@ -201,6 +203,9 @@ function summarizeRuntimeReadinessFailure(
 ): string {
   if (status === 'timeout') {
     return 'The runtime did not finish the readiness probe before the timeout.';
+  }
+  if (status === 'output_unrecognized') {
+    return 'The runtime exited successfully, but OpenAlice could not read an assistant reply from its structured output.';
   }
   const tail = `${result.stderrTail || result.stdoutTail}`.trim().replace(/\s+/g, ' ');
   const detail = tail ? ` ${tail.slice(0, 280)}` : '';

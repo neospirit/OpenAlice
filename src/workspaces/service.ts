@@ -173,6 +173,15 @@ export interface WorkspaceService {
   /** Cached install/ready snapshot for global first-run runtime gating. */
   getAgentRuntimeReadiness(): AgentRuntimeReadinessSnapshot;
   /**
+   * Start readiness probes without holding an HTTP/IPC request open. Repeated
+   * starts for the same runtime share the in-flight probe; callers observe
+   * progress through `getAgentRuntimeReadiness()`.
+   */
+  beginAgentRuntimeReadinessProbe(agentId?: string): {
+    readonly agents: readonly string[];
+    readonly snapshot: AgentRuntimeReadinessSnapshot;
+  };
+  /**
    * Run real headless readiness probes for one or all agent runtimes. Uses
    * launcher-owned scratch dirs, never registered workspaces or user projects.
    */
@@ -560,6 +569,9 @@ export async function createWorkspaceService(opts: CreateWorkspaceServiceOptions
         ...(adapter.extractHeadlessSessionId
           ? { extractSessionId: adapter.extractHeadlessSessionId.bind(adapter) }
           : {}),
+        ...(adapter.extractHeadlessAssistantText
+          ? { extractAssistantText: adapter.extractHeadlessAssistantText.bind(adapter) }
+          : {}),
       });
       return { result, source };
     } finally {
@@ -577,9 +589,12 @@ export async function createWorkspaceService(opts: CreateWorkspaceServiceOptions
     stdoutTail: '',
     stderrTail: message,
     agentSessionId: null,
+    assistantText: null,
   });
 
-  const probeSingleAgentRuntimeReadiness = async (
+  const runtimeReadinessProbeInFlight = new Map<string, Promise<AgentRuntimeReadinessRow>>();
+
+  const executeSingleAgentRuntimeReadinessProbe = async (
     adapter: CliAdapter,
     availability?: AgentAvailability,
   ): Promise<AgentRuntimeReadinessRow> => {
@@ -655,18 +670,55 @@ export async function createWorkspaceService(opts: CreateWorkspaceServiceOptions
     }
   };
 
+  const probeSingleAgentRuntimeReadiness = (
+    adapter: CliAdapter,
+    availability?: AgentAvailability,
+  ): Promise<AgentRuntimeReadinessRow> => {
+    const existing = runtimeReadinessProbeInFlight.get(adapter.id);
+    if (existing) return existing;
+    const probe = executeSingleAgentRuntimeReadinessProbe(adapter, availability);
+    runtimeReadinessProbeInFlight.set(adapter.id, probe);
+    void probe.finally(() => {
+      if (runtimeReadinessProbeInFlight.get(adapter.id) === probe) {
+        runtimeReadinessProbeInFlight.delete(adapter.id);
+      }
+    });
+    return probe;
+  };
+
+  const readinessTargets = (agentId?: string): CliAdapter[] => {
+    const runtimeAdapters = getRuntimeAdapters();
+    return agentId
+      ? runtimeAdapters.filter((adapter) => adapter.id === agentId)
+      : runtimeAdapters;
+  };
+
+  const beginAgentRuntimeReadinessProbeMethod = (agentId?: string) => {
+    const targets = readinessTargets(agentId);
+    const availability = detectAgents();
+    for (const adapter of targets) {
+      void probeSingleAgentRuntimeReadiness(adapter, availability[adapter.id]).catch((err) => {
+        launcherLogger.warn('agent_runtime_readiness.background_probe_failed', {
+          agent: adapter.id,
+          err,
+        });
+      });
+    }
+    return {
+      agents: targets.map((adapter) => adapter.id),
+      snapshot: getAgentRuntimeReadinessMethod(),
+    };
+  };
+
   const probeAgentRuntimeReadinessMethod = async (
     agentId?: string,
   ): Promise<AgentRuntimeReadinessSnapshot> => {
-    const runtimeAdapters = getRuntimeAdapters();
-    const targets = agentId
-      ? runtimeAdapters.filter((adapter) => adapter.id === agentId)
-      : runtimeAdapters;
+    const targets = readinessTargets(agentId);
     const availability = detectAgents();
     await Promise.all(
       targets.map((adapter) => probeSingleAgentRuntimeReadiness(adapter, availability[adapter.id])),
     );
-    return snapshotRuntimeReadiness(runtimeAdapters, detectAgents(), runtimeReadinessCache);
+    return snapshotRuntimeReadiness(getRuntimeAdapters(), detectAgents(), runtimeReadinessCache);
   };
 
   const computeSpawnPlan = (
@@ -755,6 +807,9 @@ export async function createWorkspaceService(opts: CreateWorkspaceServiceOptions
       ...(logPaths ? { stdoutFile: logPaths.stdout, stderrFile: logPaths.stderr } : {}),
       ...(adapter.extractHeadlessSessionId
         ? { extractSessionId: adapter.extractHeadlessSessionId.bind(adapter) }
+        : {}),
+      ...(adapter.extractHeadlessAssistantText
+        ? { extractAssistantText: adapter.extractHeadlessAssistantText.bind(adapter) }
         : {}),
       ...(opts.onSessionId ? { onSessionId: opts.onSessionId } : {}),
     });
@@ -1238,6 +1293,7 @@ export async function createWorkspaceService(opts: CreateWorkspaceServiceOptions
     publicMeta,
     detectAgents,
     getAgentRuntimeReadiness: getAgentRuntimeReadinessMethod,
+    beginAgentRuntimeReadinessProbe: beginAgentRuntimeReadinessProbeMethod,
     probeAgentRuntimeReadiness: probeAgentRuntimeReadinessMethod,
     computeSpawnPlan,
     runHeadlessProbe: runHeadlessProbeMethod,

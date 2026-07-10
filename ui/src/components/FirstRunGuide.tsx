@@ -160,7 +160,9 @@ export function FirstRunGuide() {
     setRuntimeProbeAttempted(true)
     setRuntimeProbeError(null)
     try {
-      const runtimeReadiness = await probeAgentRuntimeReadiness(agent)
+      const runtimeReadiness = await probeAgentRuntimeReadiness(agent, (snapshot) => {
+        setState((prev) => ({ ...prev, runtimeReadiness: snapshot }))
+      })
       setState((prev) => ({ ...prev, runtimeReadiness }))
       return runtimeReadiness
     } catch (err) {

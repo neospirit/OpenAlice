@@ -30,6 +30,7 @@ import { createWikilinkRoutes } from './routes/wikilink.js'
 import { createVersionRoutes } from './routes/version.js'
 import { createAuthRoutes } from './routes/auth.js'
 import { createPreferencesRoutes } from './routes/preferences.js'
+import { initializeWindowsWorkspaceShellPreference } from '../core/windows-workspace-shell.js'
 import { createAuthMiddleware } from './middleware/auth.js'
 import { mountOpenTypeBB } from '../server/opentypebb.js'
 import { buildSDKCredentials } from '../domain/market-data/credential-map.js'
@@ -153,6 +154,10 @@ export class WebPlugin implements Plugin {
     for (const ch of subChannels) {
       this.sseByChannel.set(ch.id, new Map())
     }
+
+    // Windows-only machine preference. This returns before filesystem access
+    // on macOS/Linux, so their startup and shell selection remain untouched.
+    await initializeWindowsWorkspaceShellPreference()
 
     const app = new Hono()
 

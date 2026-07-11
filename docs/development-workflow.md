@@ -108,6 +108,27 @@ Do not append agent-vendor advertising or automatic co-author trailers.
 Credit human reports, designs, or reviews through `CONTRIBUTORS.md` and links to
 the issue/PR that shaped the work.
 
+## CI Feedback Lanes
+
+CI distinguishes pre-merge confidence from post-merge integration so routine
+agent iterations do not wait for the same full matrix twice:
+
+- Every PR to `dev` or `master` runs the Ubuntu build and test gate.
+- PRs whose complete diff is limited to `ui/`, `docs/`, or root documentation
+  skip the macOS/Windows runtime matrix. Any other path keeps the full matrix.
+- Superseded runs for the same PR are cancelled. Only the latest head is a
+  merge candidate.
+- A push to `dev` runs the focused Ubuntu Guardian/full-stack smoke instead of
+  repeating the PR's complete build, test, and cross-platform jobs.
+- A push to `master` always runs the complete matrix.
+- Once this workflow version reaches the default `master` branch, the scheduled
+  validation checks out current `dev` and runs the complete matrix, providing a
+  daily cross-platform backstop for lightweight PRs.
+
+Keep the lightweight-path allowlist narrow. Changes to dependencies, runtime,
+Guardian, Electron, packaging, scripts, workflows, or any unclassified path
+must continue through Windows and macOS before merge.
+
 ## Merge and Cleanup
 
 The normal merge method is a merge commit:

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import type { Tool } from 'ai'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { WorkspaceToolContext } from '../core/workspace-tool-center.js'
 import { readWorkspaceIssues } from '../workspaces/issues/declaration.js'
@@ -63,6 +63,31 @@ describe('issue_create', () => {
     expect(issue?.title).toBe('Fix the thing')
   })
 
+  it('records the creating product Session without accepting identity args', async () => {
+    const append = vi.fn(async (input) => ({ id: 'p-1', ...input }))
+    const context = ctx({
+      provenanceStore: { append, list: vi.fn(), latest: vi.fn() },
+      origin: {
+        kind: 'interactive',
+        sessionId: 'surface-1',
+        resumeId: 'resume-1',
+        agent: 'codex',
+      },
+    })
+    await run(issueCreateFactory.build(context), { id: 'owned', title: 'Owned issue' })
+    expect(append).toHaveBeenCalledWith(expect.objectContaining({
+      artifact: { kind: 'issue', workspaceId: 'ws-self', issueId: 'owned' },
+      action: 'created',
+      origin: {
+        kind: 'session',
+        workspaceId: 'ws-self',
+        resumeId: 'resume-1',
+        agent: 'codex',
+        execution: { kind: 'interactive', sessionRecordId: 'surface-1' },
+      },
+    }))
+  })
+
   it('refuses to overwrite an existing id (conflict → clean error)', async () => {
     await run(issueCreateFactory.build(ctx()), { id: 'dup', title: 'one' })
     const res = await run(issueCreateFactory.build(ctx()), { id: 'dup', title: 'two' })
@@ -85,6 +110,17 @@ describe('issue_update', () => {
     expect(issue).toMatchObject({ status: 'in_progress', priority: 'high', body: 'keep me' })
     // scheduling frontmatter survives a board-field patch
     expect(issue?.when).toEqual({ kind: 'every', every: '30m' })
+  })
+
+  it('records successful mutations but not rejected ones', async () => {
+    const append = vi.fn(async (input) => ({ id: 'p-1', ...input }))
+    const context = ctx({ provenanceStore: { append, list: vi.fn(), latest: vi.fn() } })
+    await run(issueCreateFactory.build(context), { id: 'trail', title: 'trail' })
+    append.mockClear()
+    await run(issueUpdateFactory.build(context), { id: 'trail', status: 'in_progress' })
+    await run(issueUpdateFactory.build(context), { id: 'missing', status: 'done' })
+    expect(append).toHaveBeenCalledTimes(1)
+    expect(append).toHaveBeenCalledWith(expect.objectContaining({ action: 'updated' }))
   })
 
   it('errors with no fields to update', async () => {
@@ -282,10 +318,36 @@ describe('global board (ctx.board present)', () => {
   it('issue_show returns full detail for a unique name', async () => {
     const show = await run(issueShowFactory.build(boardCtx()), { id: 'Alpha' })
     expect(show.ok).toBe(true)
+    expect(show.mode).toBe('summary')
     expect(show.issue).toMatchObject({ id: 'alpha', body: 'the alpha body' })
     expect(show.runs).toEqual([])
     expect(show.inboxReports).toEqual([])
     expect(show.ambiguous).toBeUndefined()
+  })
+
+  it('issue_show keeps repeated prompts out of summary mode but includes them on request', async () => {
+    const detail: IssueDetail = {
+      issue: {
+        id: 'alpha', title: 'Alpha', body: 'one canonical body', status: 'todo',
+        priority: 'high', assignee: 'human', what: 'one canonical prompt',
+      },
+      runs: [{
+        taskId: 'task-1', resumeId: 'resume-kind-owl-abc123', wsId: 'ws-a', issueId: 'alpha',
+        agent: 'codex', prompt: 'large repeated execution prompt', status: 'done', startedAt: 1,
+        resumable: true,
+      }],
+      inboxReports: [],
+    }
+    const context = boardCtx({ detail: async () => detail })
+
+    const summary = await run(issueShowFactory.build(context), { id: 'Alpha' })
+    expect(JSON.stringify(summary)).not.toContain('large repeated execution prompt')
+    expect(summary.runs).toEqual([expect.objectContaining({
+      taskId: 'task-1', resumeId: 'resume-kind-owl-abc123', resumable: true,
+    })])
+
+    const detailed = await run(issueShowFactory.build(context), { id: 'Alpha', mode: 'detailed' })
+    expect(JSON.stringify(detailed)).toContain('large repeated execution prompt')
   })
 
   it('issue_show returns an ambiguous candidate list for a colliding name', async () => {

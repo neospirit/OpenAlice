@@ -26,6 +26,7 @@ import { tool } from 'ai'
 import { z } from 'zod'
 
 import type { WorkspaceToolFactory, WorkspaceToolContext } from '../core/workspace-tool-center.js'
+import { sessionOriginFromInboxOrigin, type ProvenanceAction } from '../core/provenance-store.js'
 import { readWorkspaceFile } from '../workspaces/file-service.js'
 import {
   ISSUES_DIR_REL,
@@ -59,6 +60,25 @@ function selfDir(ctx: WorkspaceToolContext): { ok: true; dir: string } | { ok: f
 
 /** The comment / create author for this workspace's writes. */
 const author = (ctx: WorkspaceToolContext): string => `ws:${ctx.workspaceLabel}`
+
+async function recordIssueProvenance(
+  ctx: WorkspaceToolContext,
+  issueId: string,
+  action: Extract<ProvenanceAction, 'created' | 'updated' | 'commented'>,
+): Promise<void> {
+  if (!ctx.provenanceStore) return
+  const origin = sessionOriginFromInboxOrigin(ctx.workspaceId, ctx.origin) ?? {
+    kind: 'unknown' as const,
+    reason: 'missing-session-origin',
+  }
+  await ctx.provenanceStore.append({
+    artifact: { kind: 'issue', workspaceId: ctx.workspaceId, issueId },
+    action,
+    origin,
+    at: Date.now(),
+    ...(action === 'created' ? { fingerprint: `issue:${ctx.workspaceId}:${issueId}:created` } : {}),
+  })
+}
 
 /** Project a full IssueRecord into the compact row the tools return. */
 function rowOf(issue: IssueRecord, workspaceLabel?: string) {
@@ -185,7 +205,10 @@ export const issueUpdateFactory: WorkspaceToolFactory = {
           return { ok: false as const, error: 'no fields to update (pass at least one of status/priority/assignee)' }
         }
         const res = await updateIssueFields(dir.dir, id, { status, priority, assignee })
-        if (res.ok) return { ok: true as const, issue: rowOf(res.issue, ctx.workspaceLabel) }
+        if (res.ok) {
+          await recordIssueProvenance(ctx, res.issue.id, 'updated')
+          return { ok: true as const, issue: rowOf(res.issue, ctx.workspaceLabel) }
+        }
         if (res.reason === 'not_found') return { ok: false as const, error: `no such issue: ${id}` }
         return { ok: false as const, error: res.error }
       },
@@ -215,7 +238,10 @@ export const issueCommentFactory: WorkspaceToolFactory = {
         const dir = selfDir(ctx)
         if (!dir.ok) return { ok: false as const, error: dir.error }
         const res = await appendIssueComment(dir.dir, id, author(ctx), text)
-        if (res.ok) return { ok: true as const, issue: rowOf(res.issue, ctx.workspaceLabel) }
+        if (res.ok) {
+          await recordIssueProvenance(ctx, res.issue.id, 'commented')
+          return { ok: true as const, issue: rowOf(res.issue, ctx.workspaceLabel) }
+        }
         if (res.reason === 'not_found') return { ok: false as const, error: `no such issue: ${id}` }
         return { ok: false as const, error: res.error }
       },
@@ -275,7 +301,10 @@ export const issueCreateFactory: WorkspaceToolFactory = {
           agent,
           body,
         })
-        if (res.ok) return { ok: true as const, issue: rowOf(res.issue, ctx.workspaceLabel) }
+        if (res.ok) {
+          await recordIssueProvenance(ctx, res.issue.id, 'created')
+          return { ok: true as const, issue: rowOf(res.issue, ctx.workspaceLabel) }
+        }
         if (res.reason === 'conflict') return { ok: false as const, error: `issue already exists: ${res.id}` }
         return { ok: false as const, error: res.error }
       },
@@ -376,16 +405,18 @@ export const issueShowFactory: WorkspaceToolFactory = {
         'Show one issue from the global board in full — resolved by its NAME',
         '(case-insensitive id OR title), across every workspace.',
         '',
-        'Returns the full detail: frontmatter + markdown body (incl. any',
-        '`## Comments`), the run history, and the inbox reports the issue produced.',
+        'Summary mode (default) returns the issue once plus compact execution and',
+        'report references. Detailed mode includes each run prompt and full report.',
         'If the name matches issues in MORE THAN ONE workspace, returns',
         '`ambiguous` (candidate { wsId, wsTag, id, title } list) — pick one by',
         'workspace and call again. Use this before updating or commenting.',
       ].join('\n'),
       inputSchema: z.object({
         id: z.string().min(1).describe("The issue's name to show — its id OR title (case-insensitive)."),
+        mode: z.enum(['summary', 'detailed']).optional().default('summary'),
       }),
-      execute: async ({ id }) => {
+      execute: async ({ id, mode }) => {
+        const outputMode = mode ?? 'summary'
         // GLOBAL by-name resolution when the service-backed reader is wired.
         // Handle-addressed: the agent never supplies a wsId UUID up front; a
         // collision returns candidates so it can disambiguate by workspace.
@@ -393,7 +424,36 @@ export const issueShowFactory: WorkspaceToolFactory = {
           const refs = await ctx.board.resolveByName(id)
           if (refs.length === 1) {
             const detail = await ctx.board.detail(refs[0].wsId, refs[0].id)
-            if (detail) return { ok: true as const, ...detail }
+            if (detail) {
+              if (outputMode === 'detailed') return { ok: true as const, mode: outputMode, ...detail }
+              return {
+                ok: true as const,
+                mode: outputMode,
+                issue: detail.issue,
+                runs: detail.runs.map((run) => ({
+                  taskId: run.taskId,
+                  resumeId: run.resumeId,
+                  ...(run.parentTaskId ? { parentTaskId: run.parentTaskId } : {}),
+                  agent: run.agent,
+                  status: run.status,
+                  startedAt: run.startedAt,
+                  ...(run.durationMs !== undefined ? { durationMs: run.durationMs } : {}),
+                  ...(run.error ? { error: run.error } : {}),
+                  ...(run.output ? { output: run.output } : {}),
+                  resumable: run.resumable,
+                })),
+                inboxReports: detail.inboxReports.map((entry) => ({
+                  id: entry.id,
+                  workspaceId: entry.workspaceId,
+                  workspaceLabel: entry.workspaceLabel,
+                  ts: entry.ts,
+                  ...(entry.docs ? { docs: entry.docs.map((doc) => ({ path: doc.path })) } : {}),
+                  ...(entry.comments ? { comments: entry.comments } : {}),
+                  ...(entry.origin ? { origin: entry.origin } : {}),
+                })),
+                hint: 'Use --mode detailed only when you need every execution prompt and full report metadata.',
+              }
+            }
             // detail vanished between resolve and read → fall through to self.
           } else if (refs.length > 1) {
             return {

@@ -14,6 +14,7 @@ import { basename, join } from 'node:path';
 
 import { cliBinPath } from '@/core/paths.js';
 import { readCredentials, readIssueDefaultAgent, readWorkspaceDefaultAgent } from '@/core/config.js';
+import { ArtifactProvenanceStore } from '@/core/provenance-store.js';
 import {
   readQuickChatPreferences,
   rememberRecentChatWorkspace,
@@ -59,14 +60,20 @@ import {
   inboxReportsForIssue,
   snapshotBoardIssue,
   type IssueDetail,
+  issueRunRecord,
   type IssueFiringMarkers,
   type IssuesSnapshot,
   type IssuesSnapshotIssue,
   type IssuesSnapshotWorkspace,
   type WikilinkIssueRef,
 } from './issues/board.js';
+import {
+  buildWorkspaceSessionDirectory,
+  type WorkspaceSessionDirectory,
+} from './session-directory.js';
 import { completeOneShotIssueAfterRun } from './issues/auto-complete.js';
 import type { IInboxStore } from '@/core/inbox-store.js';
+import { toSafeInboxOrigin } from '@/core/workspace-tool-center.js';
 import {
   HeadlessTaskRegistry,
   headlessLogPaths,
@@ -239,6 +246,8 @@ export interface WorkspaceService {
    *  headless run history, newest first). `null` when the workspace or the issue
    *  id is absent. Powers GET /api/issues/:wsId/:id. */
   issueDetail(wsId: string, id: string): Promise<IssueDetail | null>;
+  /** Safe Workspace Session index. resumeId is the only public conversation handle. */
+  sessionDirectory(wsId: string, limit?: number): Promise<WorkspaceSessionDirectory | null>;
   /** Resolve a `[[name]]` token to the issues across ALL workspaces that claim it.
    *  Matches case-insensitively against an issue's `id` OR its `title` (either is a
    *  valid name handle). Returns every match — 0, 1, or many (a collision the UI
@@ -248,6 +257,8 @@ export interface WorkspaceService {
   headlessTasks: HeadlessTaskRegistry;
   /** Backend-only product resumeId → native runtime session-id mapping. */
   resumeRegistry: ResumeRegistry;
+  /** Durable product Session -> business artifact attribution index. */
+  provenanceStore: ArtifactProvenanceStore;
   /** True while a headless turn owns this conversation transcript. */
   isResumeActive(resumeId: string): boolean;
   /** Atomically reserve a conversation before crossing an async spawn boundary. */
@@ -319,6 +330,10 @@ export async function createWorkspaceService(opts: CreateWorkspaceServiceOptions
   const resumeRegistry = await ResumeRegistry.load(
     join(config.launcherRoot, 'state', 'resume-identities.json'),
     launcherLogger.child({ scope: 'resume-registry' }),
+  );
+  const provenanceStore = await ArtifactProvenanceStore.load(
+    join(config.launcherRoot, 'state', 'artifact-provenance.json'),
+    launcherLogger.child({ scope: 'provenance-store' }),
   );
   const activeResumeIds = new Set<string>();
   const claimResume = (resumeId: string): boolean => {
@@ -1243,16 +1258,45 @@ export async function createWorkspaceService(opts: CreateWorkspaceServiceOptions
       markers = { lastFiredAtMs: fired.lastFiredAtMs, nextDueAtMs: fired.nextDueAtMs };
     }
     // Newest-first already (registry.list reverses); filter to this issue's runs.
-    const runs = headlessTasks.list({ wsId: ws.id, issueId: issue.id });
+    const runs = headlessTasks.list({ wsId: ws.id, issueId: issue.id }).map((task) =>
+      issueRunRecord(task, Boolean(resumeRegistry.get(task.resumeId)?.agentSessionId)),
+    );
     // The issue→inbox cross-link: the reports this issue produced (entries this
     // workspace pushed whose server-stamped origin.issueId is this issue).
     // Joined here in the domain so CLI / MCP get it too, not just the HTTP route.
     let inboxReports: IssueDetail['inboxReports'] = [];
     if (inboxStore) {
       const { entries } = await inboxStore.read({ workspaceId: ws.id, limit: 1000 });
-      inboxReports = inboxReportsForIssue(entries, issue.id);
+      inboxReports = inboxReportsForIssue(entries, issue.id).map((entry) => {
+        let origin = toSafeInboxOrigin(entry.origin);
+        if (origin && !origin.resumeId && origin.kind === 'headless' && origin.runId) {
+          const resumeId = headlessTasks.get(origin.runId)?.resumeId;
+          if (resumeId) origin = { ...origin, resumeId };
+        }
+        if (origin && !origin.resumeId && origin.kind === 'interactive' && origin.sessionId) {
+          const resumeId = sessionRegistry.get(ws.id, origin.sessionId)?.resumeId;
+          if (resumeId) origin = { ...origin, resumeId };
+        }
+        return { ...entry, ...(origin ? { origin } : { origin: undefined }) };
+      });
     }
     return { issue: detailIssue(issue, markers, ws.tag), runs, inboxReports };
+  };
+
+  const sessionDirectory = async (
+    wsId: string,
+    limit = 50,
+  ): Promise<WorkspaceSessionDirectory | null> => {
+    const ws = registry.get(wsId);
+    if (!ws) return null;
+    await sessionRegistry.ensureLoaded(wsId);
+    return buildWorkspaceSessionDirectory({
+      workspace: { id: ws.id, tag: ws.tag },
+      identities: resumeRegistry.list({ wsId, limit }),
+      interactiveFor: (resumeId) => sessionRegistry.findByResumeId(wsId, resumeId),
+      latestExecutionFor: (resumeId) => headlessTasks.latestForResumeId(resumeId),
+      isActive: (resumeId) => activeResumeIds.has(resumeId),
+    });
   };
 
   // Resolve a `[[name]]` token to the issues (across ALL workspaces) that claim
@@ -1495,9 +1539,11 @@ export async function createWorkspaceService(opts: CreateWorkspaceServiceOptions
     scheduleSnapshot,
     issuesSnapshot,
     issueDetail,
+    sessionDirectory,
     resolveIssuesByName,
     headlessTasks,
     resumeRegistry,
+    provenanceStore,
     isResumeActive: (resumeId) => activeResumeIds.has(resumeId),
     claimResume,
     releaseResume: (resumeId) => activeResumeIds.delete(resumeId),

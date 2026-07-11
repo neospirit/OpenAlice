@@ -5,7 +5,11 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 import type { Plugin, EngineContext } from '../core/types.js'
 import type { ToolCenter } from '../core/tool-center.js'
-import { type WorkspaceToolCenter, makeWorkspaceResolver } from '../core/workspace-tool-center.js'
+import {
+  type WorkspaceToolCenter,
+  makeInboxEntryOriginResolver,
+  makeWorkspaceResolver,
+} from '../core/workspace-tool-center.js'
 import type { IInboxStore } from '../core/inbox-store.js'
 import type { IEntityStore } from '../core/entity-store.js'
 import type { WorkspaceService } from '../workspaces/service.js'
@@ -98,9 +102,12 @@ export class McpPlugin implements Plugin {
         workspaceLabel: wsLabel,
         inboxStore,
         entityStore,
+        ...(svc ? { provenanceStore: svc.provenanceStore } : {}),
         // Parity with the CLI gateway so external MCP consumers get the same
         // workspace_path resolution — shared helper, so the two can't drift.
         resolveWorkspace: makeWorkspaceResolver(getWorkspaceService),
+        resolveInboxOrigin: makeInboxEntryOriginResolver(getWorkspaceService),
+        ...(svc ? { sessionDirectory: (id: string, limit?: number) => svc.sessionDirectory(id, limit) } : {}),
         ...(svc
           ? {
               board: {

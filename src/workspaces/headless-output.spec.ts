@@ -41,6 +41,53 @@ describe('headless structured output', () => {
     expect(output.metrics).toEqual({ textBlocks: 1, toolCalls: 1, toolFailures: 0 })
   })
 
+  it('normalizes the Claude 2.1.202 failed-tool stream while ignoring thinking as a reply', () => {
+    const output = parse(claudeAdapter, [
+      { type: 'system', subtype: 'init', session_id: 'claude-session', model: 'MiniMax-M3' },
+      { type: 'system', subtype: 'thinking_tokens', session_id: 'claude-session', estimated_tokens: 42 },
+      {
+        type: 'assistant',
+        message: { role: 'assistant', content: [{ type: 'thinking', thinking: 'I should inspect the file.' }] },
+      },
+      {
+        type: 'assistant',
+        message: {
+          role: 'assistant',
+          content: [{
+            type: 'tool_use', id: 'call-live', name: 'Read',
+            input: { file_path: '/workspace/AGENTS.md', limit: 1, pages: '' },
+          }],
+        },
+      },
+      {
+        type: 'user',
+        message: {
+          role: 'user',
+          content: [{
+            type: 'tool_result', tool_use_id: 'call-live', is_error: true,
+            content: '<tool_use_error>Invalid pages parameter</tool_use_error>',
+          }],
+        },
+      },
+      {
+        type: 'assistant',
+        message: { role: 'assistant', content: [{ type: 'text', text: 'CLAUDE_ASYNC_RUN_OK' }] },
+      },
+      { type: 'result', subtype: 'success', is_error: false, result: 'CLAUDE_ASYNC_RUN_OK' },
+    ])
+
+    expect(output.assistantText).toBe('CLAUDE_ASYNC_RUN_OK')
+    expect(output.blocks).toEqual([
+      {
+        type: 'tool', id: 'call-live', name: 'Read', status: 'failed',
+        input: { file_path: '/workspace/AGENTS.md', limit: 1, pages: '' },
+        output: '<tool_use_error>Invalid pages parameter</tool_use_error>',
+      },
+      { type: 'text', text: 'CLAUDE_ASYNC_RUN_OK' },
+    ])
+    expect(output.metrics).toEqual({ textBlocks: 1, toolCalls: 1, toolFailures: 1 })
+  })
+
   it('normalizes Codex command execution and file-change items', () => {
     const output = parse(codexAdapter, [
       { type: 'item.started', item: { id: 'c1', type: 'command_execution', command: 'alice status', status: 'in_progress' } },
@@ -53,6 +100,41 @@ describe('headless structured output', () => {
     expect(output.metrics.toolCalls).toBe(2)
     expect(output.blocks).toContainEqual(expect.objectContaining({ type: 'tool', id: 'c1', name: 'Shell', status: 'completed' }))
     expect(output.blocks).toContainEqual(expect.objectContaining({ type: 'tool', id: 'f1', name: 'File changes', status: 'completed' }))
+  })
+
+  it('normalizes the Codex 0.144.1 command stream and keeps the latest reply', () => {
+    const output = parse(codexAdapter, [
+      { type: 'thread.started', thread_id: 'codex-session' },
+      { type: 'turn.started' },
+      { type: 'item.completed', item: { id: 'item_0', type: 'agent_message', text: 'I will run the check.' } },
+      {
+        type: 'item.started',
+        item: {
+          id: 'item_1', type: 'command_execution', command: "/bin/zsh -lc 'printf CODEX_TOOL_OK'",
+          aggregated_output: '', exit_code: null, status: 'in_progress',
+        },
+      },
+      {
+        type: 'item.completed',
+        item: {
+          id: 'item_1', type: 'command_execution', command: "/bin/zsh -lc 'printf CODEX_TOOL_OK'",
+          aggregated_output: 'CODEX_TOOL_OK', exit_code: 0, status: 'completed',
+        },
+      },
+      { type: 'item.completed', item: { id: 'item_2', type: 'agent_message', text: 'CODEX_HEADLESS_OK' } },
+      { type: 'turn.completed', usage: { input_tokens: 1, output_tokens: 1 } },
+    ])
+
+    expect(output.assistantText).toBe('CODEX_HEADLESS_OK')
+    expect(output.blocks).toEqual([
+      { type: 'text', text: 'I will run the check.' },
+      {
+        type: 'tool', id: 'item_1', name: 'Shell', status: 'completed',
+        input: { command: "/bin/zsh -lc 'printf CODEX_TOOL_OK'" }, output: 'CODEX_TOOL_OK',
+      },
+      { type: 'text', text: 'CODEX_HEADLESS_OK' },
+    ])
+    expect(output.metrics).toEqual({ textBlocks: 2, toolCalls: 1, toolFailures: 0 })
   })
 
   it('keeps runtime-level failures as error blocks', () => {

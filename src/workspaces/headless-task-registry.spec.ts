@@ -85,6 +85,41 @@ describe('HeadlessTaskRegistry', () => {
     expect(reg2.get(fired.taskId)?.issueId).toBe('daily-scan')
   })
 
+  it('persists and reverse-filters business inquiry subjects', async () => {
+    const reg = await HeadlessTaskRegistry.load(path, noopLogger)
+    const inbox = await createTask(reg, {
+      wsId: 'w1', agent: 'pi', prompt: 'why?', startedAt: 1,
+      inquiry: {
+        subject: { kind: 'inbox', entryId: 'entry-1' },
+        question: 'why?',
+        resolution: { mode: 'exact' },
+      },
+    })
+    const owner = await createTask(reg, {
+      wsId: 'w1', agent: 'codex', prompt: 'status?', startedAt: 2,
+      inquiry: {
+        subject: { kind: 'issue', workspaceId: 'w1', issueId: 'issue-1', relation: 'owner' },
+        question: 'status?',
+        resolution: { mode: 'exact' },
+      },
+    })
+    const run = await createTask(reg, {
+      wsId: 'w1', agent: 'codex', prompt: 'what happened?', startedAt: 3,
+      inquiry: {
+        subject: { kind: 'issue', workspaceId: 'w1', issueId: 'issue-1', relation: 'run', runId: 'run-old' },
+        question: 'what happened?',
+        resolution: { mode: 'reconstructed', reason: 'missing-origin' },
+      },
+    })
+
+    expect(reg.list({ inquiry: { kind: 'inbox', entryId: 'entry-1' } }).map((task) => task.taskId))
+      .toEqual([inbox.taskId])
+    expect(reg.list({ inquiry: { kind: 'issue', workspaceId: 'w1', issueId: 'issue-1' } }).map((task) => task.taskId))
+      .toEqual([run.taskId, owner.taskId])
+    const reloaded = await HeadlessTaskRegistry.load(path, noopLogger)
+    expect(reloaded.get(owner.taskId)?.inquiry?.subject).toMatchObject({ relation: 'owner' })
+  })
+
   it('list filters by issueId (the issue detail Activity feed join)', async () => {
     const reg = await HeadlessTaskRegistry.load(path, noopLogger)
     const a = await createTask(reg, { wsId: 'w1', agent: 'codex', prompt: 'x', startedAt: 1, issueId: 'iss-a' })

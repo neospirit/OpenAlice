@@ -35,6 +35,33 @@ export interface HeadlessTaskOutputSummary {
   readonly toolFailures: number
 }
 
+/** Business object that requested a headless follow-up. Product provenance
+ * only: adapter-native session ids never cross into this record. */
+export type HeadlessInquirySubject =
+  | { readonly kind: 'inbox'; readonly entryId: string }
+  | {
+      readonly kind: 'issue'
+      readonly workspaceId: string
+      readonly issueId: string
+      readonly relation: 'creator' | 'owner' | 'run'
+      readonly runId?: string
+    }
+
+/** Reverse-index scope used to load every inquiry attached to one object. */
+export type HeadlessInquiryScope =
+  | { readonly kind: 'inbox'; readonly entryId: string }
+  | { readonly kind: 'issue'; readonly workspaceId: string; readonly issueId: string }
+
+export interface HeadlessTaskInquiry {
+  readonly subject: HeadlessInquirySubject
+  /** Original user-facing question, before reconstruction instructions wrap it. */
+  readonly question: string
+  readonly resolution: {
+    readonly mode: 'exact' | 'reconstructed'
+    readonly reason?: string
+  }
+}
+
 export interface HeadlessTaskRecord {
   readonly taskId: string
   /**
@@ -54,6 +81,8 @@ export interface HeadlessTaskRecord {
    * issue. This is the run↔issue link the issue detail's Activity feed joins on.
    */
   readonly issueId?: string
+  /** Durable reverse link for Inbox/Issue follow-up UI. */
+  readonly inquiry?: HeadlessTaskInquiry
   readonly agent: string
   /** The task prompt (the run's instruction) — shown collapsible in the panel. */
   readonly prompt: string
@@ -144,6 +173,8 @@ export class HeadlessTaskRegistry {
     parentTaskId?: string
     /** Set only when an issue fired this run (scheduled scan); omitted for manual/external runs. */
     issueId?: string
+    /** Business follow-up metadata; omitted for automation/manual runs. */
+    inquiry?: HeadlessTaskInquiry
   }): Promise<HeadlessTaskRecord> {
     let taskId = randomTaskId()
     while (this.tasks.some((task) => task.taskId === taskId)) taskId = randomTaskId()
@@ -158,6 +189,7 @@ export class HeadlessTaskRegistry {
       startedAt: input.startedAt,
       // Keep the field absent (not `undefined`) on manual runs so the JSON stays clean.
       ...(input.issueId ? { issueId: input.issueId } : {}),
+      ...(input.inquiry ? { inquiry: input.inquiry } : {}),
     }
     this.tasks.push(rec)
     await this.flush()
@@ -206,6 +238,7 @@ export class HeadlessTaskRegistry {
       wsId?: string
       issueId?: string
       status?: HeadlessTaskStatus
+      inquiry?: HeadlessInquiryScope
       /** Return records older than this task in the filtered newest-first view. */
       cursor?: string
       limit?: number
@@ -215,6 +248,7 @@ export class HeadlessTaskRegistry {
       (t) =>
         (!opts.wsId || t.wsId === opts.wsId) &&
         (!opts.issueId || t.issueId === opts.issueId) &&
+        (!opts.inquiry || inquirySubjectMatches(t.inquiry?.subject, opts.inquiry)) &&
         (!opts.status || t.status === opts.status),
     )
     out = out.slice().reverse() // newest-first
@@ -228,11 +262,12 @@ export class HeadlessTaskRegistry {
   }
 
   /** Count filtered records without materializing them over the HTTP boundary. */
-  count(opts: { wsId?: string; issueId?: string; status?: HeadlessTaskStatus } = {}): number {
+  count(opts: { wsId?: string; issueId?: string; status?: HeadlessTaskStatus; inquiry?: HeadlessInquiryScope } = {}): number {
     return this.tasks.reduce(
       (count, task) => count + (
         (!opts.wsId || task.wsId === opts.wsId) &&
         (!opts.issueId || task.issueId === opts.issueId) &&
+        (!opts.inquiry || inquirySubjectMatches(task.inquiry?.subject, opts.inquiry)) &&
         (!opts.status || task.status === opts.status)
           ? 1
           : 0
@@ -261,4 +296,18 @@ export class HeadlessTaskRegistry {
       this.logger.warn('headless_registry.flush_failed', { err })
     }
   }
+}
+
+function inquirySubjectMatches(
+  actual: HeadlessInquirySubject | undefined,
+  expected: HeadlessInquiryScope,
+): boolean {
+  if (!actual || actual.kind !== expected.kind) return false
+  if (actual.kind === 'inbox' && expected.kind === 'inbox') {
+    return actual.entryId === expected.entryId
+  }
+  if (actual.kind === 'issue' && expected.kind === 'issue') {
+    return actual.workspaceId === expected.workspaceId && actual.issueId === expected.issueId
+  }
+  return false
 }

@@ -46,6 +46,7 @@ export const inboxAskFactory: WorkspaceToolFactory = {
           const result = await askWorkspaceConversation(ctx, {
             prompt,
             target,
+            subject: { kind: 'inbox', entryId: entry.id },
             ...(agent ? { agent } : {}),
             ...(timeoutMs ? { timeoutMs } : {}),
             await: shouldAwait,
@@ -153,6 +154,13 @@ export const issueAskFactory: WorkspaceToolFactory = {
           const result = await askWorkspaceConversation(ctx, {
             prompt,
             target,
+            subject: {
+              kind: 'issue',
+              workspaceId: ref.wsId,
+              issueId: ref.id,
+              relation,
+              ...(runId ? { runId } : {}),
+            },
             ...(agent ? { agent } : {}),
             ...(timeoutMs ? { timeoutMs } : {}),
             await: shouldAwait,

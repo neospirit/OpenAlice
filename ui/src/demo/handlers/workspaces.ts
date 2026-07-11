@@ -167,6 +167,42 @@ export const workspacesHandlers = [
       title: null,
     }),
   ),
+  http.get('/api/workspaces/:id/resumes', ({ params }) => {
+    const wsId = String(params.id)
+    if (wsId === 'demo-ws-auto-quant') {
+      return HttpResponse.json({
+        workspace: { id: wsId, tag: 'auto-quant' },
+        sessions: [{
+          resumeId: 'demo-resume-thesis-owner', agent: 'claude',
+          createdAt: Date.now() - 86_400_000, updatedAt: Date.now() - 60_000,
+          resumable: true, active: false,
+          latestExecution: {
+            taskId: 'demo-thesis-owner-run', status: 'done',
+            startedAt: Date.now() - 60_000,
+            assistantPreview: 'Reviewed the active thesis invalidation rules.',
+          },
+        }],
+      })
+    }
+    const workspace = demoWorkspaces.find((candidate) => candidate.id === wsId)
+    return HttpResponse.json({
+      workspace: { id: wsId, tag: workspace?.tag ?? wsId },
+      sessions: (workspace?.sessions ?? []).map((session) => ({
+        resumeId: session.resumeId,
+        agent: session.agent,
+        createdAt: Date.parse(session.createdAt),
+        updatedAt: Date.parse(session.lastActiveAt),
+        resumable: session.agent !== 'shell',
+        active: session.state === 'running',
+        interactive: {
+          name: session.name,
+          ...(session.title ? { title: session.title } : {}),
+          state: session.state,
+          lastActiveAt: session.lastActiveAt,
+        },
+      })),
+    })
+  }),
   http.post('/api/workspaces/:id/resumes/:resumeId/session', ({ params }) => {
     const wsId = String(params.id)
     const resumeId = String(params.resumeId)

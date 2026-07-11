@@ -6,6 +6,7 @@ import { PageHeader } from '../components/PageHeader'
 import { Skeleton } from '../components/StateViews'
 import { MarkdownContent } from '../components/MarkdownContent'
 import { FileContentView } from '../components/FileContentView'
+import { InquiryPanel } from '../components/InquiryPanel'
 import { api } from '../api'
 import { inboxLive, refreshInbox, removeInboxOptimistically } from '../live/inbox'
 import { useInboxSelection } from '../live/inbox-selection'
@@ -252,6 +253,14 @@ function Detail({ entry, onDelete }: { entry: InboxEntry; onDelete: () => void }
 
   const hasHeadlessOrigin = origin?.kind === 'headless' && !!origin.runId
   const canContinueOrigin = hasHeadlessOrigin || !!sessionRecord
+  const loadInquiries = useCallback(
+    () => api.inquiries.forInbox(entry.id),
+    [entry.id],
+  )
+  const askInbox = useCallback(
+    (prompt: string) => api.inquiries.askInbox(entry.id, prompt),
+    [entry.id],
+  )
 
   return (
     <div className="max-w-[1040px] mx-auto py-6 px-4 md:px-8">
@@ -348,6 +357,19 @@ function Detail({ entry, onDelete }: { entry: InboxEntry; onDelete: () => void }
             className="leading-relaxed text-text/90"
           />
         </div>
+      )}
+
+      {wsAlive && (
+        <InquiryPanel
+          title={origin?.resumeId || origin?.runId || origin?.sessionId ? 'Ask the sender' : 'Ask this Workspace'}
+          description={origin?.resumeId || origin?.runId || origin?.sessionId
+            ? 'Send a background follow-up to the Session that produced this Inbox entry. You can leave while it works.'
+            : 'No sender Session was recorded. OpenAlice will recruit a fresh agent in the source Workspace and label the answer reconstructed.'}
+          actionLabel={origin?.resumeId || origin?.runId || origin?.sessionId ? 'Ask sender' : 'Ask workspace'}
+          placeholder="What do you want to ask about this message?"
+          load={loadInquiries}
+          ask={askInbox}
+        />
       )}
 
       {/* Follow-up bar — exact originating Session when available; Workspace

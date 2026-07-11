@@ -231,14 +231,23 @@ export function createWorkspaceConversationControl(
       const prompt = resolution.mode === 'exact'
         ? input.prompt
         : reconstructionPrompt(input.target, input.prompt, Boolean(continuingOrigin))
-      const dispatched = await svc.dispatchHeadlessTask(
-        meta,
-        adapter,
-        prompt,
-        input.timeoutMs,
-        undefined,
-        continuingOrigin?.resumeId,
-      )
+      const inquiry = input.subject
+        ? {
+            subject: input.subject,
+            question: input.prompt,
+            resolution: {
+              mode: resolution.mode,
+              ...(resolution.mode === 'reconstructed' ? { reason: resolution.reason } : {}),
+            },
+          }
+        : undefined
+      const dispatched = inquiry
+        ? await svc.dispatchHeadlessTask(
+            meta, adapter, prompt, input.timeoutMs, undefined, continuingOrigin?.resumeId, inquiry,
+          )
+        : await svc.dispatchHeadlessTask(
+            meta, adapter, prompt, input.timeoutMs, undefined, continuingOrigin?.resumeId,
+          )
       let effectiveResolution = resolution
       if (resolution.mode === 'reconstructed' && resolution.artifact && !resolution.origin) {
         const origin: SessionOrigin = {

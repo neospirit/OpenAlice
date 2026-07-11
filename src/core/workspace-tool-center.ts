@@ -35,7 +35,7 @@ import type { ArtifactRef, SessionOrigin } from './provenance-store.js'
 import type { IssuesSnapshot, IssueDetail, WikilinkIssueRef } from '../workspaces/issues/board.js'
 import type { WorkspaceSessionDirectory } from '../workspaces/session-directory.js'
 import type { HeadlessStructuredOutput } from '../workspaces/headless-output.js'
-import type { HeadlessTaskStatus } from '../workspaces/headless-task-registry.js'
+import type { HeadlessInquirySubject, HeadlessTaskStatus } from '../workspaces/headless-task-registry.js'
 
 export type WorkspaceConversationTarget =
   | { kind: 'resume'; resumeId: string }
@@ -118,6 +118,8 @@ export interface WorkspaceConversationControl {
     readonly timeoutMs: number
     readonly target: WorkspaceConversationTarget
     readonly agent?: string
+    /** Optional business reverse link persisted with the dispatched task. */
+    readonly subject?: HeadlessInquirySubject
   }): Promise<WorkspaceConversationAskResult>
   read(taskId: string): Promise<WorkspaceConversationTask | null>
 }

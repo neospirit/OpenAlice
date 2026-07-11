@@ -64,6 +64,7 @@ describe('inbox_ask', () => {
     expect(ask).toHaveBeenCalledWith({
       prompt: 'why?',
       target: { kind: 'resume', resumeId: 'resume-peer' },
+      subject: { kind: 'inbox', entryId: entry.id },
       timeoutMs: 300_000,
     })
   })

@@ -78,6 +78,7 @@ import { toSafeInboxOrigin } from '@/core/workspace-tool-center.js';
 import {
   HeadlessTaskRegistry,
   headlessLogPaths,
+  type HeadlessTaskInquiry,
   type HeadlessTaskRecord,
 } from './headless-task-registry.js';
 import { ResumeRegistry } from './resume-registry.js';
@@ -236,6 +237,8 @@ export interface WorkspaceService {
     /** Continue this OpenAlice-owned conversation. Native runtime ids are
      * resolved only inside the service. */
     resumeId?: string,
+    /** Optional Inbox/Issue reverse link for a user-initiated inquiry. */
+    inquiry?: HeadlessTaskInquiry,
   ): Promise<{ taskId: string; resumeId: string }>;
   /** Read-only scheduling projection of every workspace's `.alice/issues/`
    *  directory (scheduled issues only) + each task's last-fired marker and
@@ -969,6 +972,7 @@ export async function createWorkspaceService(opts: CreateWorkspaceServiceOptions
     // Manual/external runs (the workspace "run task" route) leave it undefined.
     issueId?: string,
     resumeId?: string,
+    inquiry?: HeadlessTaskInquiry,
   ): Promise<{ taskId: string; resumeId: string }> => {
     if (!adapter.capabilities.headless || !adapter.composeHeadlessCommand) {
       throw new Error(`adapter "${adapter.id}" has no headless mode`);
@@ -1026,6 +1030,7 @@ export async function createWorkspaceService(opts: CreateWorkspaceServiceOptions
         resumeId: identity.resumeId,
         ...(parentTaskId ? { parentTaskId } : {}),
         ...(issueId ? { issueId } : {}),
+        ...(inquiry ? { inquiry } : {}),
       });
       await resumeRegistry.ensure({
         resumeId: identity.resumeId,

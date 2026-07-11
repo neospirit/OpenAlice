@@ -1,5 +1,5 @@
 import type { HeadlessTaskRecord } from '../../api/headless'
-import type { IssueDetail, IssuePriority, IssueSnapshot, IssueStatus } from '../../api/issues'
+import type { IssueDetail, IssueExecution, IssuePriority, IssueSnapshot, IssueStatus } from '../../api/issues'
 import { demoInboxEntries } from './inbox'
 
 // GET /api/issues aggregates every workspace's declared issues by SCANNING
@@ -42,6 +42,7 @@ export const demoIssuesSnapshot: IssueSnapshot = {
           priority: 'high',
           assignee: 'ws:auto-quant',
           agent: 'codex',
+          execution: { mode: 'fresh' },
           when: { kind: 'cron', cron: '30 8 * * 1-5' },
           lastFiredAtMs: now - HOUR,
           nextDueAtMs: now + 16 * HOUR,
@@ -54,6 +55,7 @@ export const demoIssuesSnapshot: IssueSnapshot = {
           priority: 'urgent',
           assignee: 'ws:auto-quant',
           agent: 'claude',
+          execution: { mode: 'resume', resumeId: 'demo-resume-thesis-owner' },
           when: { kind: 'every', every: '1h' },
           lastFiredAtMs: now - HOUR / 2,
           nextDueAtMs: now + HOUR / 2,
@@ -465,13 +467,14 @@ function appendCommentToBody(body: string, author: string, text: string): string
 export function demoIssueUpdate(
   wsId: string,
   id: string,
-  patch: { status?: IssueStatus; priority?: IssuePriority; assignee?: string; agent?: string | null },
+  patch: { status?: IssueStatus; priority?: IssuePriority; assignee?: string; agent?: string | null; execution?: IssueExecution },
 ): IssueDetail | null {
   const boardIssue = findBoardIssue(wsId, id)
   if (!boardIssue) return null
   if (patch.status !== undefined) boardIssue.status = patch.status
   if (patch.priority !== undefined) boardIssue.priority = patch.priority
   if (patch.assignee !== undefined) boardIssue.assignee = patch.assignee
+  if (patch.execution !== undefined) boardIssue.execution = patch.execution
   if (patch.agent !== undefined) {
     if (patch.agent === null) delete boardIssue.agent
     else boardIssue.agent = patch.agent

@@ -9,6 +9,7 @@ import type {
   WorkspaceToolFactory,
 } from '../core/workspace-tool-center.js'
 import type { HeadlessMessageBlock } from '../workspaces/headless-output.js'
+import type { HeadlessInquirySubject } from '../workspaces/headless-task-registry.js'
 
 const DEFAULT_TIMEOUT_MS = 300_000
 const MAX_TIMEOUT_MS = 1_800_000
@@ -74,6 +75,7 @@ export async function askWorkspaceConversation(
   input: {
     prompt: string
     target: WorkspaceConversationTarget
+    subject?: HeadlessInquirySubject
     agent?: string
     timeoutMs?: number
     await?: boolean
@@ -88,6 +90,7 @@ export async function askWorkspaceConversation(
       prompt: input.prompt,
       target: input.target,
       timeoutMs: effectiveTimeoutMs,
+      ...(input.subject ? { subject: input.subject } : {}),
       ...(input.agent ? { agent: input.agent } : {}),
     })
     if (result.status === 'unavailable') {

@@ -468,6 +468,15 @@ continue the reconstruction Session instead of recruiting another worker, but
 the resolution mode remains `reconstructed`: continuity does not turn that
 worker into the historical author.
 
+The human UI uses the same resolver through asynchronous `/api/inquiries`
+business routes. Each dispatched headless task persists a safe inquiry subject
+(Inbox entry, or Issue + creator/owner/run relation), the original question,
+and exact/reconstructed resolution. This reverse link lets Inbox and Issue
+pages restore follow-up history after navigation or restart without parsing
+prompts or exposing adapter-native session ids. UI requests return immediately
+after dispatch; the page polls durable task state instead of holding an
+Electron IPC request open for the model turn.
+
 ## Phase 2 Feature Design Skeleton
 
 Business convenience wrappers delegate to the same shipped resolver:
@@ -512,6 +521,7 @@ shapes should point back here rather than restating the rules differently.
 | `src/workspaces/service.ts` | Dispatch, resume, and per-Session concurrency |
 | `src/workspaces/conversation-control.ts` | Provenance resolution plus exact/reconstructed headless dispatch |
 | `src/tool/conversation.ts` | Embedded business-target ask/read CLI tools |
+| `src/webui/routes/inquiries.ts` | Human Inbox/Issue ask dispatch and durable inquiry projections |
 | `src/core/inbox-store.ts` | Immutable notification records and sender provenance |
 | `src/server/inbox-origin.ts` | Server-side run/session attribution |
 | `src/workspaces/issues/declaration.ts` | Workspace-local Issue declaration |

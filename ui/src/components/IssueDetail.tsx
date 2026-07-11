@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { ArrowLeft, Hash, History, Inbox, ListChecks, Settings, TrendingUp, X } from 'lucide-react'
+import { ArrowLeft, Hash, History, Inbox, ListChecks, Settings, TrendingUp, UserRound, UsersRound, X } from 'lucide-react'
 
 import type { HeadlessTaskRecord, HeadlessTaskStatus } from '../api/headless'
 import type { InboxEntry } from '../api/inbox'
@@ -22,6 +22,7 @@ import {
   type WorkspaceSessionDirectoryEntry,
 } from './workspace/api'
 import { issuesApi } from '../api/issues'
+import { inquiriesApi } from '../api/inquiries'
 import { useIssueDetail } from '../hooks/useIssueDetail'
 import { useIssues } from '../hooks/useIssues'
 import { useWorkspaces } from '../contexts/workspaces-context'
@@ -35,6 +36,7 @@ import { CadencePill, PriorityIndicator } from './IssuesBoard'
 import { STATUS_META } from './issue-status-meta'
 import { MarkdownContent } from './MarkdownContent'
 import { CenteredLoading } from './StateViews'
+import { InquiryPanel } from './InquiryPanel'
 
 // Run-status pill tints — mirrors AutomationRunsSection's STATUS_STYLE so the
 // Activity feed reads the same as the headless-runs panel.
@@ -275,26 +277,81 @@ function ExecutionEditor({
   )
   const hasSelected = value?.mode !== 'resume' || choices.some((session) => session.resumeId === value.resumeId)
 
+  const mode = value?.mode ?? 'fresh'
   return (
-    <select
-      className={railControl}
-      value={selected}
-      disabled={disabled}
-      onChange={(event) => {
-        const resumeId = event.target.value
-        onChange(resumeId === '__fresh__' ? { mode: 'fresh' } : { mode: 'resume', resumeId })
-      }}
-    >
-      <option value="__fresh__">Fresh Session each fire</option>
-      {choices.map((session) => (
-        <option key={session.resumeId} value={session.resumeId}>
-          Continue {labelFor(session)} · {session.agent}
-        </option>
-      ))}
-      {!hasSelected && value?.mode === 'resume' && (
-        <option value={value.resumeId}>Unavailable owner · {value.resumeId}</option>
+    <div className="space-y-2">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => onChange({ mode: 'fresh' })}
+        className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${
+          mode === 'fresh' ? 'border-accent/60 bg-accent/10' : 'border-border bg-bg hover:border-accent/30'
+        } disabled:opacity-50`}
+      >
+        <span className="flex items-center gap-2 text-[12px] font-medium text-text">
+          <UsersRound size={14} aria-hidden /> New agent every run
+        </span>
+        <span className="mt-1 block text-[11px] leading-snug text-muted">
+          Each fire starts a separate Session. Ask a specific run when you need follow-up.
+        </span>
+      </button>
+      <button
+        type="button"
+        disabled={disabled || (choices.length === 0 && mode !== 'resume')}
+        onClick={() => {
+          if (mode !== 'resume' && choices[0]) onChange({ mode: 'resume', resumeId: choices[0].resumeId })
+        }}
+        className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${
+          mode === 'resume' ? 'border-accent/60 bg-accent/10' : 'border-border bg-bg hover:border-accent/30'
+        } disabled:cursor-not-allowed disabled:opacity-50`}
+      >
+        <span className="flex items-center gap-2 text-[12px] font-medium text-text">
+          <UserRound size={14} aria-hidden /> One responsible Session
+        </span>
+        <span className="mt-1 block text-[11px] leading-snug text-muted">
+          Every fire resumes the same accountable agent and conversational context.
+        </span>
+      </button>
+      {mode === 'resume' && (
+        <select
+          className={`${railControl} w-full`}
+          value={selected}
+          disabled={disabled}
+          aria-label="Responsible Session"
+          onChange={(event) => onChange({ mode: 'resume', resumeId: event.target.value })}
+        >
+          {choices.map((session) => (
+            <option key={session.resumeId} value={session.resumeId}>
+              {labelFor(session)} · {session.agent}
+            </option>
+          ))}
+          {!hasSelected && value?.mode === 'resume' && (
+            <option value={value.resumeId}>Unavailable owner · {value.resumeId}</option>
+          )}
+        </select>
       )}
-    </select>
+      {choices.length === 0 && mode !== 'resume' && (
+        <p className="text-[11px] leading-snug text-muted">No resumable Session is available in this Workspace yet.</p>
+      )}
+    </div>
+  )
+}
+
+function PropertySection({
+  title,
+  description,
+  children,
+}: {
+  title: string
+  description?: string
+  children: ReactNode
+}) {
+  return (
+    <section className="rounded-lg border border-border bg-bg p-3">
+      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted/70">{title}</h3>
+      {description && <p className="mt-1 text-[11px] leading-snug text-muted">{description}</p>}
+      <div className="mt-2 divide-y divide-border/60">{children}</div>
+    </section>
   )
 }
 
@@ -334,9 +391,8 @@ function PropertiesRail({
   const selectedReadiness = effectiveAgent ? agentReadiness[effectiveAgent] : undefined
   const agentNeedsCredential = selectedReadiness?.requiresCredential === true && !selectedReadiness.ready
   return (
-    <aside className="w-full shrink-0 space-y-1 rounded-lg border border-border bg-bg-secondary p-4 lg:w-64">
-      <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted/70">Properties</h3>
-      <div className="divide-y divide-border/60">
+    <aside className="w-full shrink-0 space-y-3 lg:w-72">
+      <PropertySection title="Work item" description="Human tracking fields. These do not decide which agent runs the schedule.">
         <EditRow label="Status">
           <meta.Icon size={14} className={`shrink-0 ${meta.className}`} />
           <select
@@ -375,63 +431,53 @@ function PropertiesRail({
             onChange={(assignee) => onPatch({ assignee })}
           />
         </EditRow>
-        <PropRow label="Cadence">
-          {issue.when ? <CadencePill when={issue.when} /> : <span className="text-muted">—</span>}
-        </PropRow>
-        {issue.when && (
-          <EditRow label="Ownership">
+      </PropertySection>
+
+      {issue.when && (
+        <PropertySection
+          title="Scheduled execution"
+          description="Choose whether each fire recruits a new worker or keeps one accountable Session."
+        >
+          <PropRow label="Cadence"><CadencePill when={issue.when} /></PropRow>
+          <div className="py-3">
             <ExecutionEditor
               value={issue.execution}
               sessions={sessions}
               disabled={saving}
               onChange={(execution) => onPatch({ execution })}
             />
-          </EditRow>
-        )}
-        {issue.execution?.mode === 'resume' ? (
-          <PropRow label="Agent">
-            <span title="The responsible Session determines its runtime">
-              {ownerSession?.agent ?? 'Session-owned'}
-            </span>
+          </div>
+          {issue.execution?.mode === 'resume' ? (
+            <PropRow label="Runtime">
+              <span title="The responsible Session determines its runtime">
+                {ownerSession?.agent ?? 'Session-owned'}
+              </span>
+            </PropRow>
+          ) : (
+            <EditRow label="Runtime">
+              <AgentEditor
+                value={issue.agent}
+                issueDefaultAgent={issueDefaultAgent}
+                defaultAgent={defaultAgent}
+                options={agentOptions}
+                readiness={agentReadiness}
+                disabled={saving}
+                onChange={(agent) => onPatch({ agent })}
+                onConfigure={onConfigureAgent}
+              />
+            </EditRow>
+          )}
+          {agentNeedsCredential && (
+            <p className="py-2 text-right text-[11px] leading-snug text-amber-400">AI credential missing.</p>
+          )}
+          <PropRow label="Last run">
+            {issue.lastFiredAtMs ? formatRelativeTime(issue.lastFiredAtMs) : <span className="text-muted">never</span>}
           </PropRow>
-        ) : (
-          <EditRow label="Agent">
-            <AgentEditor
-              value={issue.agent}
-              issueDefaultAgent={issueDefaultAgent}
-              defaultAgent={defaultAgent}
-              options={agentOptions}
-              readiness={agentReadiness}
-              disabled={saving}
-              onChange={(agent) => onPatch({ agent })}
-              onConfigure={onConfigureAgent}
-            />
-          </EditRow>
-        )}
-        {agentNeedsCredential && (
-          <p className="-mt-1 pb-2 text-right text-[11px] leading-snug text-amber-400">
-            AI credential missing.
-          </p>
-        )}
-        {issue.when && (
-          <>
-            <PropRow label="Last fired">
-              {issue.lastFiredAtMs ? (
-                formatRelativeTime(issue.lastFiredAtMs)
-              ) : (
-                <span className="text-muted">never</span>
-              )}
-            </PropRow>
-            <PropRow label="Next due">
-              {issue.nextDueAtMs ? (
-                formatRelativeTime(issue.nextDueAtMs)
-              ) : (
-                <span className="text-muted">—</span>
-              )}
-            </PropRow>
-          </>
-        )}
-      </div>
+          <PropRow label="Next run">
+            {issue.nextDueAtMs ? formatRelativeTime(issue.nextDueAtMs) : <span className="text-muted">—</span>}
+          </PropRow>
+        </PropertySection>
+      )}
       {error && <p className="mt-2 text-[11px] leading-snug text-red-400">{error}</p>}
     </aside>
   )
@@ -508,7 +554,7 @@ function CommentComposer({
 
 // ==================== Activity feed (headless runs) ====================
 
-function RunRow({ run }: { run: HeadlessTaskRecord }) {
+function RunRow({ run, onAsk }: { run: HeadlessTaskRecord; onAsk: (run: HeadlessTaskRecord) => void }) {
   return (
     <li className="rounded-lg border border-border bg-bg-secondary px-3 py-2.5">
       <div className="flex items-center gap-2">
@@ -522,6 +568,15 @@ function RunRow({ run }: { run: HeadlessTaskRecord }) {
           {formatRelativeTime(run.startedAt)}
         </span>
         <span className="text-xs text-muted/70">· {fmtDuration(run.durationMs)}</span>
+        <button
+          type="button"
+          onClick={() => onAsk(run)}
+          disabled={!run.resumable || run.status === 'running'}
+          title={run.resumable ? 'Ask the Session behind this run' : 'This run did not capture a resumable Session'}
+          className="rounded-md border border-border px-2 py-1 text-[11px] text-muted transition-colors hover:border-accent/50 hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Ask run
+        </button>
       </div>
       {run.prompt && (
         <p className="mt-1.5 line-clamp-2 text-[12px] leading-snug text-text/80" title={run.prompt}>
@@ -533,7 +588,7 @@ function RunRow({ run }: { run: HeadlessTaskRecord }) {
   )
 }
 
-function ActivityFeed({ runs }: { runs: HeadlessTaskRecord[] }) {
+function ActivityFeed({ runs, onAskRun }: { runs: HeadlessTaskRecord[]; onAskRun: (run: HeadlessTaskRecord) => void }) {
   return (
     <section className="mt-8">
       <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted/70">Activity</h3>
@@ -544,7 +599,7 @@ function ActivityFeed({ runs }: { runs: HeadlessTaskRecord[] }) {
       ) : (
         <ul className="space-y-2">
           {runs.map((run) => (
-            <RunRow key={run.taskId} run={run} />
+            <RunRow key={run.taskId} run={run} onAsk={onAskRun} />
           ))}
         </ul>
       )}
@@ -796,6 +851,11 @@ interface IssueDetailProps {
   onOpenIssue?: (ref: WikilinkIssueRef) => void
 }
 
+type IssueInquiryTarget =
+  | { relation: 'creator' }
+  | { relation: 'owner' }
+  | { relation: 'run'; runId: string }
+
 export function IssueDetail({
   wsId,
   id,
@@ -819,6 +879,7 @@ export function IssueDetail({
   const [actionError, setActionError] = useState<string | null>(null)
   const [agentReadiness, setAgentReadiness] = useState<Record<string, AgentCredentialReadiness>>({})
   const [sessionDirectory, setSessionDirectory] = useState<readonly WorkspaceSessionDirectoryEntry[]>([])
+  const [inquiryTarget, setInquiryTarget] = useState<IssueInquiryTarget>({ relation: 'creator' })
   // Set when a clicked `[[name]]` resolves to >1 target — drives the picker.
   const [picker, setPicker] = useState<WikilinkResolution | null>(null)
 
@@ -835,10 +896,14 @@ export function IssueDetail({
   }, [wsId])
 
   useEffect(() => {
+    setInquiryTarget({ relation: 'creator' })
+  }, [wsId, id])
+
+  useEffect(() => {
     let live = true
     getWorkspaceSessionDirectory(wsId)
       .then((directory) => {
-        if (live) setSessionDirectory(directory.sessions)
+        if (live) setSessionDirectory(Array.isArray(directory.sessions) ? directory.sessions : [])
       })
       .catch(() => {
         if (live) setSessionDirectory([])
@@ -937,6 +1002,20 @@ export function IssueDetail({
     [wsId, id, mutate],
   )
 
+  const loadInquiries = useCallback(
+    () => inquiriesApi.forIssue(wsId, id),
+    [wsId, id],
+  )
+
+  const askIssue = useCallback(
+    (prompt: string) => inquiriesApi.askIssue(wsId, id, {
+      prompt,
+      relation: inquiryTarget.relation,
+      ...(inquiryTarget.relation === 'run' ? { runId: inquiryTarget.runId } : {}),
+    }),
+    [wsId, id, inquiryTarget],
+  )
+
   const backToBoard = (
     <button
       type="button"
@@ -953,6 +1032,12 @@ export function IssueDetail({
       <ArrowLeft size={13} /> {backLabel}
     </button>
   )
+
+  useEffect(() => {
+    if (inquiryTarget.relation === 'owner' && data?.issue.execution?.mode !== 'resume') {
+      setInquiryTarget({ relation: 'creator' })
+    }
+  }, [data?.issue.execution, inquiryTarget.relation])
 
   if (!data) {
     return (
@@ -976,6 +1061,11 @@ export function IssueDetail({
   const { issue, runs } = data
   const inboxReports = data.inboxReports ?? []
   const provenance = data.provenance ?? []
+  const inquiryDescription = inquiryTarget.relation === 'owner'
+    ? 'Continue the one responsible Session declared by this Issue’s execution policy.'
+    : inquiryTarget.relation === 'run'
+      ? `Continue the exact Session behind run ${inquiryTarget.runId}.`
+      : 'Ask the attributable creator why this Issue exists. Legacy human-created Issues may require Workspace reconstruction.'
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-5 md:px-6">
@@ -994,9 +1084,48 @@ export function IssueDetail({
               <p className="text-sm text-muted">No description.</p>
             )}
           </div>
+          <InquiryPanel
+            title="Ask about this Issue"
+            description={inquiryDescription}
+            actionLabel={inquiryTarget.relation === 'owner' ? 'Ask owner' : inquiryTarget.relation === 'run' ? 'Ask run' : 'Ask creator'}
+            placeholder="What do you want to clarify?"
+            load={loadInquiries}
+            ask={askIssue}
+            controls={(
+              <div className="inline-flex rounded-lg border border-border bg-bg p-1 text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => setInquiryTarget({ relation: 'creator' })}
+                  className={`rounded-md px-2 py-1 transition-colors ${inquiryTarget.relation === 'creator' ? 'bg-bg-tertiary text-text' : 'text-muted hover:text-text'}`}
+                >
+                  Creator
+                </button>
+                {issue.execution?.mode === 'resume' && (
+                  <button
+                    type="button"
+                    onClick={() => setInquiryTarget({ relation: 'owner' })}
+                    className={`rounded-md px-2 py-1 transition-colors ${inquiryTarget.relation === 'owner' ? 'bg-bg-tertiary text-text' : 'text-muted hover:text-text'}`}
+                  >
+                    Owner
+                  </button>
+                )}
+                {inquiryTarget.relation === 'run' && (
+                  <button type="button" className="rounded-md bg-bg-tertiary px-2 py-1 text-text">
+                    Run {inquiryTarget.runId}
+                  </button>
+                )}
+              </div>
+            )}
+          />
           <CommentComposer wsId={wsId} id={id} onPosted={mutate} />
           <ProvenanceTimeline records={provenance} onContinue={continueProvenanceSession} />
-          <ActivityFeed runs={runs} />
+          <ActivityFeed
+            runs={runs}
+            onAskRun={(run) => {
+              setInquiryTarget({ relation: 'run', runId: run.taskId })
+              window.requestAnimationFrame(() => document.getElementById('inquiries')?.scrollIntoView({ behavior: 'smooth', block: 'center' }))
+            }}
+          />
           <InboxReportsSection reports={inboxReports} onOpen={gotoInbox} />
         </main>
         <PropertiesRail

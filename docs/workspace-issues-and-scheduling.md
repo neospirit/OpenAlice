@@ -202,6 +202,13 @@ overlap. If server-side collection reaches its budget while a task still runs,
 use a later collect or one-shot read; agents should not manufacture shell sleep
 loops.
 
+The Issue detail UI separates human tracking properties from scheduled
+execution responsibility. Status, priority, and assignee do not select an
+agent. A scheduled Issue instead presents two explicit policies: recruit a new
+Session on every fire (`fresh`), or keep one responsible Session (`resume`).
+Only the second policy has a stable owner to ask; fresh execution exposes the
+creator and each concrete run as separate follow-up targets.
+
 Scheduling never bypasses trading approval. A headless agent may research or
 stage a trade, but execution remains behind UTA/Trading-as-Git permission and
 human approval boundaries.
@@ -223,6 +230,7 @@ human approval boundaries.
 | `src/workspaces/headless-output.ts` | Vendor-neutral reply/tool block contract and accumulator |
 | `src/workspaces/adapters/{claude,codex,opencode,pi}.ts` | Runtime-specific JSON event translation |
 | `src/webui/routes/headless.ts` | Cross-workspace capacity, task, normalized output, and diagnostic-tail API |
+| `src/webui/routes/inquiries.ts` | Inbox/Issue follow-up dispatch and durable business-object history |
 | `ui/src/pages/AutomationRunsSection.tsx` | Run list, final reply, tool activity, and diagnostics UI |
 | `src/tool/issue-tools.ts` | Workspace-scoped issue CLI/MCP tools |
 | `src/tool/inbox-push.ts` | Headless/interactive delivery to Inbox |

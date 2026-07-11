@@ -99,6 +99,20 @@ export function buildPackagedToolchainSmokePlan(packageResult) {
       expectStatus: 1,
       expectStderr: /alice: AQ_WS_ID is not set/,
     })
+    commands.push({
+      label: 'Workspace CLI transport env through managed Git Bash',
+      command: bashExe,
+      args: ['--noprofile', '--norc', '-c', 'alice --help'],
+      env: {
+        ...winEnv,
+        AQ_WS_ID: 'workspace-toolchain-smoke',
+        OPENALICE_TOOL_URL: '/cli',
+        OPENALICE_TOOL_SOCKET: '\\\\.\\pipe\\openalice-toolchain-missing',
+        OPENALICE_CLI_DEBUG: '1',
+      },
+      expectStatus: 1,
+      expectStdout: /"toolUrl":"\/cli"/,
+    })
   }
 
   return { ok: errors.length === 0, errors, commands }

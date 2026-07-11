@@ -51,6 +51,13 @@ if [ -n "${OPENALICE_MANAGED_PI_NODE_PATH:-}" ]; then
     # translate the first argument for a renamed OpenAlice.exe.
     converted=$(cygpath -w "$payload" 2>/dev/null || true)
     if [ -n "$converted" ]; then payload=$converted; fi
+    # `/cli` is an application route, not a POSIX filesystem path. Preserve
+    # both transport values when MSYS prepares the native Electron child env.
+    case "${MSYS2_ENV_CONV_EXCL:-}" in
+      '') MSYS2_ENV_CONV_EXCL='OPENALICE_TOOL_URL;OPENALICE_TOOL_SOCKET' ;;
+      *) MSYS2_ENV_CONV_EXCL="$MSYS2_ENV_CONV_EXCL;OPENALICE_TOOL_URL;OPENALICE_TOOL_SOCKET" ;;
+    esac
+    export MSYS2_ENV_CONV_EXCL
   fi
   exec "$managed_node" "$payload" "$@"
 fi

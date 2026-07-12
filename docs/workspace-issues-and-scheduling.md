@@ -35,14 +35,12 @@ status: todo
 priority: high
 assignee: ws:research
 when: { kind: cron, cron: "30 8 * * 1-5" }
-what: >
-  Pull pre-market movers and overnight news, write research/premarket.md,
-  then push the report to Inbox.
 agent: pi
 execution: { mode: fresh }
 ---
 
-Prepare a concise brief before the trading day.
+Pull pre-market movers and overnight news, write `research/premarket.md`,
+then push the report to Inbox. Prepare a concise brief before the trading day.
 ```
 
 The filename stem is the stable issue id. Frontmatter:
@@ -55,7 +53,6 @@ The filename stem is the stable issue id. Frontmatter:
   - `{ kind: at, at: <ISO timestamp> }`
   - `{ kind: every, every: <duration> }`
   - `{ kind: cron, cron: <5-field expression> }`
-- `what` — optional standalone headless prompt; falls back to title + body.
 - `agent` — optional CLI adapter id; otherwise Workspace/default resolution is
   used. It selects the runtime for `fresh`; `resume` uses the declared Session's
   immutable runtime.
@@ -65,6 +62,17 @@ The filename stem is the stable issue id. Frontmatter:
   runtime session id; provenance-only, not-yet-resumable Sessions are rejected
   at assignment time. Existing files without `execution` remain fresh for
   compatibility; new agent-created schedules must choose explicitly.
+
+The markdown below frontmatter is the Issue's canonical **What**: the work
+definition humans inspect and edit. For scheduled Issues, Alice sends this exact
+markdown to the Agent Runtime. There is no second prompt in frontmatter and no
+description/prompt fallback chain that can drift.
+
+Comments are markdown too, but they are not part of What. They persist in the
+adjacent `.alice/issues/<id>.comments.json` sidecar as structured records
+(`id`, `author`, `at`, `markdown`). The Issue document is intentionally editable
+by agents and has no reliable internal structure, so comments must not depend on
+a heading surviving an arbitrary rewrite.
 
 `done` and `canceled` are terminal and stop scheduled firing. There is no
 separate `enabled` flag. A successful one-shot `at` issue is automatically
@@ -77,14 +85,14 @@ Agents normally use:
 ```bash
 alice-workspace issue list
 alice-workspace issue show --id <id-or-title>
-alice-workspace issue create --title "..." --when '{"kind":"every","every":"1h"}' --execution '{"mode":"fresh"}'
+alice-workspace issue create --title "..." --what "..." --when '{"kind":"every","every":"1h"}' --execution '{"mode":"fresh"}'
 alice-workspace issue update --id <id> --status done
 alice-workspace issue comment --id <id> --text "..."
 ```
 
-The CLI and MCP tools use the same implementation and write the same markdown
-files. Direct file editing is also valid and is the clearest way to author the
-body plus `when` / `what` / `agent` / `execution` fields.
+The CLI and MCP tools use the same implementation and write the same files.
+Direct file editing is also valid and is the clearest way to author rich What
+markdown plus `when` / `agent` / `execution` frontmatter.
 
 Reads such as list/show aggregate all workspaces. Writes from an autonomous or
 headless run stay inside its own Workspace. Editing a peer Workspace requires
@@ -104,7 +112,7 @@ an attended, human-approved path and a commit in the peer repository.
   -> Inbox item linked to the run and issue
 ```
 
-The scanner interprets timing only. It hands `what` (or title + body) to the
+The scanner interprets timing only. It hands the visible markdown What to the
 agent unchanged. Conditions belong in that prompt: for “notify only if X,” the
 run checks X and exits silently when false.
 
@@ -217,7 +225,8 @@ human approval boundaries.
 
 | Path | Responsibility |
 |---|---|
-| `src/workspaces/issues/declaration.ts` | File schema, parsing, validation, prompt fallback |
+| `src/workspaces/issues/declaration.ts` | File schema, canonical What parsing, validation |
+| `src/workspaces/issues/comments.ts` | Structured per-Issue markdown comment sidecars |
 | `src/workspaces/issues/mutate.ts` | Safe read-modify-write operations |
 | `src/workspaces/issues/board.ts` | Global board/detail projections |
 | `src/workspaces/issues/auto-complete.ts` | Successful one-shot → `done` transition |

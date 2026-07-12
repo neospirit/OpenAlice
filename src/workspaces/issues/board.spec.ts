@@ -175,7 +175,7 @@ describe('workspace default assignee projection', () => {
     status: 'todo',
     priority: 'none',
     assignee: 'unassigned',
-    body: '',
+    what: 'Issue',
   } as const
 
   it('projects a missing assignee to the owning workspace', () => {

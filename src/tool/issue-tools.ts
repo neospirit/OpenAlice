@@ -13,7 +13,7 @@
  * and goes through the single read-modify-write seam in
  * `../workspaces/issues/mutate.ts` (shared with the human/UI HTTP routes) or the
  * live reader in `../workspaces/issues/declaration.ts`. The issue file
- * (`.alice/issues/<id>.md`, YAML frontmatter + markdown body) is the single
+ * (`.alice/issues/<id>.md`, YAML frontmatter + canonical markdown What) is the single
  * source of truth; writes are working-tree only (no auto-commit).
  *
  * Comments and created-issue authorship are tagged `ws:<workspaceLabel>` — the
@@ -45,6 +45,7 @@ import {
   createIssue,
   updateIssueFields,
 } from '../workspaces/issues/mutate.js'
+import { readIssueComments, type IssueComment } from '../workspaces/issues/comments.js'
 import {
   flattenBoardRows,
   issueAssigneeForWorkspace,
@@ -224,11 +225,11 @@ export const issueUpdateFactory: WorkspaceToolFactory = {
       description: [
         "Update one of THIS workspace's issues — its board fields.",
         '',
-        'Patch any subset of `status`, `priority`, `assignee`, `execution`; omitted fields are',
+        'Patch any subset of `status`, `priority`, `assignee`, `execution`, `what`; omitted fields are',
         'left untouched. `execution:{mode:"resume"}` binds this current product',
-        'Session; pass a resumeId to assign another known Session. Other scheduling',
-        'frontmatter (`when`/`what`/`agent`) and the',
-        'markdown body are preserved — edit those by writing the file directly',
+        'Session; pass a resumeId to assign another known Session. What is the',
+        'canonical markdown work definition and exact scheduled prompt. Other scheduling',
+        'frontmatter (`when`/`agent`) is preserved — edit it by writing the file directly',
         '(`.alice/issues/<id>.md`).',
         '',
         'Marking an issue `done` or `canceled` is how a self-scheduled issue is',
@@ -244,19 +245,21 @@ export const issueUpdateFactory: WorkspaceToolFactory = {
           .optional()
           .describe('New assignee, e.g. "human", "ws:<tag>", or "unassigned".'),
         execution: issueExecutionInputSchema.optional().describe('Scheduled ownership: fresh each fire, or resume one exact product Session.'),
+        what: z.string().min(1).optional().describe('Canonical markdown work definition; exact scheduled prompt.'),
       }),
-      execute: async ({ id, status, priority, assignee, execution }) => {
+      execute: async ({ id, status, priority, assignee, execution, what }) => {
         const dir = selfDir(ctx)
         if (!dir.ok) return { ok: false as const, error: dir.error }
         const resolvedExecution = resolveIssueExecution(ctx, execution)
         if (!resolvedExecution.ok) return { ok: false as const, error: resolvedExecution.error }
-        if (status === undefined && priority === undefined && assignee === undefined && !resolvedExecution.execution) {
-          return { ok: false as const, error: 'no fields to update (pass status/priority/assignee/execution)' }
+        if (status === undefined && priority === undefined && assignee === undefined && !resolvedExecution.execution && what === undefined) {
+          return { ok: false as const, error: 'no fields to update (pass status/priority/assignee/execution/what)' }
         }
         const res = await updateIssueFields(dir.dir, id, {
           status,
           priority,
           assignee,
+          what,
           ...(resolvedExecution.execution ? { execution: resolvedExecution.execution } : {}),
         })
         if (res.ok) {
@@ -279,9 +282,9 @@ export const issueCommentFactory: WorkspaceToolFactory = {
       description: [
         "Append a comment to one of THIS workspace's issues.",
         '',
-        'The comment lands under a stable `## Comments` section in the issue’s',
-        'markdown body (the file is the single source of truth — no separate',
-        'comment store), authored as `ws:<this workspace>`. Use it to leave a',
+        'The markdown comment is appended to the Issue’s structured JSON sidecar,',
+        'authored as `ws:<this workspace>`. It never mutates the canonical What',
+        'or silently changes the next scheduled prompt. Use it to leave a',
         'progress note, a finding, or a question for the human reading the board.',
       ].join('\n'),
       inputSchema: z.object({
@@ -316,11 +319,12 @@ export const issueCreateFactory: WorkspaceToolFactory = {
         'title when omitted). Creating over an existing id is refused — pick a',
         'different id or update the existing one with issue_update.',
         '',
-        'Add a `when` to make the issue self-schedule (the scanner fires `what`,',
-        'or the title+body if `what` is absent, on the schedule) — otherwise it’s',
+        'The markdown `what` is the Issue’s work definition. Add a `when` and',
+        'the scanner sends that exact visible What to the Agent Runtime; without',
+        '`when` the same What remains a pure board work item. Otherwise it’s',
         'a pure board work item. Every new scheduled issue must choose execution:',
         '`fresh` recruits a new Session each fire; `resume` keeps one accountable',
-        'Session. Omit resumeId to bind the current Session. `body` is markdown.',
+        'Session. Omit resumeId to bind the current Session.',
       ].join('\n'),
       inputSchema: z.object({
         title: z.string().min(1).describe('Short human title (required).'),
@@ -339,12 +343,11 @@ export const issueCreateFactory: WorkspaceToolFactory = {
         when: issueWhenSchema
           .optional()
           .describe('Schedule shape — { kind:"at", at } | { kind:"every", every } | { kind:"cron", cron }. Present iff the issue self-schedules.'),
-        what: z.string().min(1).optional().describe('Prompt fired on schedule; falls back to title+body if absent.'),
+        what: z.string().min(1).optional().describe('Markdown work definition; exact scheduled prompt. Defaults to title.'),
         agent: z.string().min(1).optional().describe('Adapter id for fresh execution; resume uses its Session-bound runtime.'),
         execution: issueExecutionInputSchema.optional().describe('Required with `when`: fresh each fire, or resume an exact product Session.'),
-        body: z.string().optional().describe('Markdown description body.'),
       }),
-      execute: async ({ title, id, status, priority, assignee, when, what, agent, execution, body }) => {
+      execute: async ({ title, id, status, priority, assignee, when, what, agent, execution }) => {
         const dir = selfDir(ctx)
         if (!dir.ok) return { ok: false as const, error: dir.error }
         if (when && !execution) {
@@ -365,7 +368,6 @@ export const issueCreateFactory: WorkspaceToolFactory = {
           what,
           agent,
           ...(resolvedExecution.execution ? { execution: resolvedExecution.execution } : {}),
-          body,
         })
         if (res.ok) {
           await recordIssueProvenance(ctx, res.issue.id, 'created')
@@ -547,14 +549,16 @@ export const issueShowFactory: WorkspaceToolFactory = {
 async function readSelfIssue(
   ctx: WorkspaceToolContext,
   id: string,
-): Promise<{ ok: true; issue: IssueRecord } | { ok: false; error: string }> {
+): Promise<{ ok: true; issue: IssueRecord; comments: IssueComment[] } | { ok: false; error: string }> {
   const dir = selfDir(ctx)
   if (!dir.ok) return { ok: false, error: dir.error }
   const raw = await readWorkspaceFile(dir.dir, join(ISSUES_DIR_REL, `${id}.md`))
   if (raw === null) return { ok: false, error: `no such issue: ${id}` }
   const parsed = parseIssueContent(id, raw)
   if (!parsed.ok) return { ok: false, error: parsed.error }
-  return { ok: true, issue: parsed.issue }
+  const comments = await readIssueComments(dir.dir, id)
+  if (!comments.ok) return { ok: false, error: comments.error }
+  return { ok: true, issue: parsed.issue, comments: comments.comments }
 }
 
 /** All issue tool factories, in registration order. */

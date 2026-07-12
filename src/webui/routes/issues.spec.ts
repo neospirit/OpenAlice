@@ -16,6 +16,7 @@ import type { InboxEntry } from '../../core/inbox-store.js'
 import { detailIssue } from '../../workspaces/issues/board.js'
 import { readWorkspaceIssues } from '../../workspaces/issues/declaration.js'
 import { createIssue } from '../../workspaces/issues/mutate.js'
+import { readIssueComments } from '../../workspaces/issues/comments.js'
 import type { WorkspaceService } from '../../workspaces/service.js'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -60,7 +61,9 @@ function build(inboxReports: InboxEntry[] = []) {
       const r = await readWorkspaceIssues(wsDir)
       if (!r.ok) return null
       const issue = r.issues.find((i) => i.id === id)
-      return issue ? { issue: detailIssue(issue, null), runs: [], inboxReports, provenance: [] } : null
+      if (!issue) return null
+      const comments = await readIssueComments(wsDir, id)
+      return { issue: detailIssue(issue, null), comments: comments.ok ? comments.comments : [], runs: [], inboxReports, provenance: [] }
     },
     provenanceStore: { append: appendProvenance, list: vi.fn(), latest: vi.fn() },
   } as unknown as WorkspaceService
@@ -146,7 +149,9 @@ describe('PATCH /api/issues/:wsId/:id', () => {
   it('updates fields including the scheduled agent runtime and returns the detail shape', async () => {
     await createIssue(wsDir, { id: 'i1', title: 'T', body: 'keep me' })
     const { app, appendProvenance } = build()
-    const r = await req(app, 'PATCH', '/ws-1/i1', { status: 'in_progress', priority: 'high', assignee: 'human', agent: 'pi' })
+    const r = await req(app, 'PATCH', '/ws-1/i1', {
+      status: 'in_progress', priority: 'high', assignee: 'human', agent: 'pi', what: 'new exact work',
+    })
     expect(r.status).toBe(200)
     expect(r.body.issue).toMatchObject({
       id: 'i1',
@@ -154,13 +159,14 @@ describe('PATCH /api/issues/:wsId/:id', () => {
       priority: 'high',
       assignee: 'human',
       agent: 'pi',
-      body: 'keep me',
+      what: 'new exact work',
     })
     expect(Array.isArray(r.body.runs)).toBe(true)
     // Persisted on disk.
     const re = await readWorkspaceIssues(wsDir)
     expect(re.ok && re.issues[0].status).toBe('in_progress')
     expect(re.ok && re.issues[0].agent).toBe('pi')
+    expect(re.ok && re.issues[0].what).toBe('new exact work')
     expect(appendProvenance).toHaveBeenCalledWith(expect.objectContaining({
       artifact: { kind: 'issue', workspaceId: 'ws-1', issueId: 'i1' },
       action: 'updated',
@@ -217,10 +223,10 @@ describe('POST /api/issues/:wsId/:id/comments', () => {
     const { app, appendProvenance } = build()
     const r = await req(app, 'POST', '/ws-1/i1/comments', { text: 'looks good' })
     expect(r.status).toBe(200)
-    expect(r.body.issue.body).toContain('## Comments')
-    expect(r.body.issue.body).toContain('**human**')
-    expect(r.body.issue.body).toContain('looks good')
-    expect(r.body.issue.body).toContain('desc')
+    expect(r.body.issue.what).toBe('desc')
+    expect(r.body.comments).toEqual([
+      expect.objectContaining({ author: 'human', markdown: 'looks good' }),
+    ])
     expect(appendProvenance).toHaveBeenCalledWith(expect.objectContaining({
       action: 'commented',
       origin: { kind: 'human' },

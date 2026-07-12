@@ -87,7 +87,7 @@ describe('readWorkspaceIssues', () => {
     }
   })
 
-  it('parses a SCHEDULED issue (with when) including its body', async () => {
+  it('merges a legacy frontmatter prompt and body into canonical What', async () => {
     await writeIssue(
       'morning-research',
       fm(
@@ -114,11 +114,11 @@ describe('readWorkspaceIssues', () => {
         status: 'in_progress',
         priority: 'high',
         assignee: 'ws:auto-quant',
-        what: 'run the research routine',
+        what: 'run the research routine\n\n## Context\n\nScan overnight movers and summarize.',
         agent: 'codex',
       })
       expect(i.when).toEqual({ kind: 'every', every: '30m' })
-      expect(i.body).toBe('Scan overnight movers and summarize.')
+      expect(i.what).toBe('run the research routine\n\n## Context\n\nScan overnight movers and summarize.')
       expect(isFireable(i)).toBe(true)
     }
   })
@@ -205,7 +205,7 @@ describe('isFireable / issueFirePrompt', () => {
     if (r.ok) for (const i of r.issues) expect(isFireable(i)).toBe(false)
   })
 
-  it('fire prompt prefers `what`, else falls back to title+body, else title', async () => {
+  it('fire prompt is exactly the canonical visible What', async () => {
     await writeIssue('with-what', fm('title: T\nwhat: explicit prompt', 'ignored body'))
     await writeIssue('no-what', fm('title: Do the thing', 'with detail'))
     await writeIssue('bare', fm('title: Just a title'))
@@ -213,9 +213,18 @@ describe('isFireable / issueFirePrompt', () => {
     expect(r.ok).toBe(true)
     if (r.ok) {
       const byId = Object.fromEntries(r.issues.map((i) => [i.id, i]))
-      expect(issueFirePrompt(byId['with-what'])).toBe('explicit prompt')
-      expect(issueFirePrompt(byId['no-what'])).toBe('Do the thing\n\nwith detail')
+      expect(issueFirePrompt(byId['with-what'])).toBe('explicit prompt\n\n## Context\n\nignored body')
+      expect(issueFirePrompt(byId['no-what'])).toBe('with detail')
       expect(issueFirePrompt(byId['bare'])).toBe('Just a title')
     }
+  })
+
+  it('keeps legacy inline comments out of canonical What', async () => {
+    await writeIssue('commented', fm('title: Commented', 'Do the work.\n\n## Comments\n\n**human** · 2026-07-12T00:00:00.000Z\n\nLooks good.'))
+    const result = await readWorkspaceIssues(dir)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.issues[0].what).toBe('Do the work.')
+    expect(issueFirePrompt(result.issues[0])).toBe('Do the work.')
   })
 })

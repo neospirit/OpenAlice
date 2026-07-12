@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { WorkspaceToolContext } from '../core/workspace-tool-center.js'
 import { readWorkspaceIssues } from '../workspaces/issues/declaration.js'
+import { readIssueComments } from '../workspaces/issues/comments.js'
 import type {
   IssueDetail,
   IssuesSnapshot,
@@ -164,18 +165,20 @@ describe('issue_create', () => {
 })
 
 describe('issue_update', () => {
-  it('validates and writes patched fields, preserving body + scheduling', async () => {
+  it('updates canonical What while preserving scheduling', async () => {
     await run(issueCreateFactory.build(ctx()), {
       id: 'sched',
       title: 'scheduled work',
       when: { kind: 'every', every: '30m' },
       execution: { mode: 'fresh' },
-      body: 'keep me',
+      what: 'keep me',
     })
-    const res = await run(issueUpdateFactory.build(ctx()), { id: 'sched', status: 'in_progress', priority: 'high' })
+    const res = await run(issueUpdateFactory.build(ctx()), {
+      id: 'sched', status: 'in_progress', priority: 'high', what: 'new exact work',
+    })
     expect(res.ok).toBe(true)
     const issue = await readBack('sched')
-    expect(issue).toMatchObject({ status: 'in_progress', priority: 'high', body: 'keep me' })
+    expect(issue).toMatchObject({ status: 'in_progress', priority: 'high', what: 'new exact work' })
     // scheduling frontmatter survives a board-field patch
     expect(issue?.when).toEqual({ kind: 'every', every: '30m' })
   })
@@ -206,14 +209,12 @@ describe('issue_update', () => {
 })
 
 describe('issue_comment', () => {
-  it('appends a ws-authored comment into the issue body', async () => {
-    await run(issueCreateFactory.build(ctx()), { id: 'c1', title: 'commentable', body: 'desc' })
+  it('appends a ws-authored structured markdown comment', async () => {
+    await run(issueCreateFactory.build(ctx()), { id: 'c1', title: 'commentable', what: 'desc' })
     const res = await run(issueCommentFactory.build(ctx()), { id: 'c1', text: 'progress note' })
     expect(res.ok).toBe(true)
-    const issue = await readBack('c1')
-    expect(issue?.body).toMatch(/## Comments/)
-    expect(issue?.body).toMatch(/\*\*ws:auto-quant\*\*/)
-    expect(issue?.body).toMatch(/progress note/)
+    const comments = await readIssueComments(dir, 'c1')
+    expect(comments.ok && comments.comments[0]).toMatchObject({ author: 'ws:auto-quant', markdown: 'progress note' })
   })
 
   it('errors cleanly on a missing issue', async () => {
@@ -299,12 +300,13 @@ describe('global board (ctx.board present)', () => {
       issue: {
         id: 'alpha',
         title: 'Alpha',
-        body: 'the alpha body',
+        what: 'the alpha body',
         status: 'todo',
         priority: 'high',
         assignee: 'human',
         execution: { mode: 'fresh' },
       },
+      comments: [],
       runs: [],
       inboxReports: [],
       provenance: [],
@@ -391,7 +393,7 @@ describe('global board (ctx.board present)', () => {
     const show = await run(issueShowFactory.build(boardCtx()), { id: 'Alpha' })
     expect(show.ok).toBe(true)
     expect(show.mode).toBe('summary')
-    expect(show.issue).toMatchObject({ id: 'alpha', body: 'the alpha body' })
+    expect(show.issue).toMatchObject({ id: 'alpha', what: 'the alpha body' })
     expect(show.runs).toEqual([])
     expect(show.inboxReports).toEqual([])
     expect(show.ambiguous).toBeUndefined()
@@ -400,9 +402,10 @@ describe('global board (ctx.board present)', () => {
   it('issue_show keeps repeated prompts out of summary mode but includes them on request', async () => {
     const detail: IssueDetail = {
       issue: {
-        id: 'alpha', title: 'Alpha', body: 'one canonical body', status: 'todo',
-        priority: 'high', assignee: 'human', what: 'one canonical prompt', execution: { mode: 'fresh' },
+        id: 'alpha', title: 'Alpha', what: 'one canonical prompt', status: 'todo',
+        priority: 'high', assignee: 'human', execution: { mode: 'fresh' },
       },
+      comments: [],
       runs: [{
         taskId: 'task-1', resumeId: 'resume-kind-owl-abc123', wsId: 'ws-a', issueId: 'alpha',
         agent: 'codex', prompt: 'large repeated execution prompt', status: 'done', startedAt: 1,

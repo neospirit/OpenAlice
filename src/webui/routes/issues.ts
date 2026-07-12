@@ -15,7 +15,7 @@
  * via its own tools). Both writes go through the shared mutation helper
  * (`workspaces/issues/mutate.ts`) so the human and agent surfaces can never
  * drift on file format or validation; writes are working-tree only (no commit):
- *   PATCH /api/issues/:wsId/:id           body { status?, priority?, assignee? }
+ *   PATCH /api/issues/:wsId/:id           body { status?, priority?, assignee?, what? }
  *   POST  /api/issues/:wsId/:id/comments  body { text }  (author = 'human')
  *
  * Both return the same detail shape GET /api/issues/:wsId/:id does, so the UI
@@ -39,6 +39,7 @@ import type { WorkspaceService } from '../../workspaces/service.js'
 
 /** Upper bound on a single comment's text (matches the headless seed cap). */
 const MAX_COMMENT = 16000
+const MAX_WHAT = 60000
 
 function validId(id: string | undefined): id is string {
   return typeof id === 'string' && /^[a-zA-Z0-9_-]+$/.test(id)
@@ -60,7 +61,7 @@ export function createIssuesRoutes(svc: WorkspaceService): Hono {
     return c.json(await svc.issuesSnapshot())
   })
 
-  // GET /api/issues/:wsId/:id → { issue: {...incl. body + markers}, runs: [...],
+  // GET /api/issues/:wsId/:id → { issue: {...incl. What + markers}, comments, runs: [...],
   // inboxReports: [...] }. The issue→inbox join lives in svc.issueDetail (domain),
   // so this route is a thin pass-through. 404 when the workspace or the issue id
   // is absent (mirrors the workspaces route convention: `{ error: 'not_found' }`).
@@ -73,7 +74,7 @@ export function createIssuesRoutes(svc: WorkspaceService): Hono {
   // PATCH /api/issues/:wsId/:id — patch board fields { status?, priority?,
   // assignee? } plus the scheduled runtime override { agent? } on one issue
   // (the human/UI path). `agent: null` removes the override so future fires use
-  // the workspace default runtime. Other scheduling frontmatter (when/what)
+  // the workspace default runtime. Other scheduling frontmatter (`when`)
   // stays file-owned. Returns the updated detail shape; 404 when missing.
   app.patch('/:wsId/:id', async (c) => {
     const wsId = c.req.param('wsId')
@@ -84,7 +85,7 @@ export function createIssuesRoutes(svc: WorkspaceService): Hono {
 
     const body = await safeJson(c)
     const fields = body && typeof body === 'object' ? (body as Record<string, unknown>) : {}
-    const patch: { status?: IssueStatus; priority?: IssuePriority; assignee?: string; agent?: string | null; execution?: IssueExecution } = {}
+    const patch: { status?: IssueStatus; priority?: IssuePriority; assignee?: string; agent?: string | null; execution?: IssueExecution; what?: string } = {}
     if ('status' in fields) {
       const s = fields['status']
       if (typeof s !== 'string' || !ISSUE_STATUSES.includes(s as IssueStatus)) {
@@ -146,8 +147,18 @@ export function createIssuesRoutes(svc: WorkspaceService): Hono {
       }
       patch.execution = execution.data
     }
+    if ('what' in fields) {
+      const what = fields['what']
+      if (typeof what !== 'string' || what.trim().length === 0) {
+        return c.json({ error: 'invalid_what', message: 'what must be non-empty markdown' }, 400)
+      }
+      if (what.length > MAX_WHAT) {
+        return c.json({ error: 'what_too_long', message: `max ${MAX_WHAT} chars` }, 400)
+      }
+      patch.what = what.trim()
+    }
     if (Object.keys(patch).length === 0) {
-      return c.json({ error: 'no_fields', message: 'provide at least one of status, priority, assignee, agent, execution' }, 400)
+      return c.json({ error: 'no_fields', message: 'provide at least one of status, priority, assignee, agent, execution, what' }, 400)
     }
 
     try {
@@ -164,15 +175,15 @@ export function createIssuesRoutes(svc: WorkspaceService): Hono {
       })
       launcherLogger.info('issue.updated', { wsId, id, fields: Object.keys(patch) })
       const detail = await svc.issueDetail(wsId, id)
-      return c.json(detail ?? { issue: res.issue, runs: [], inboxReports: [] })
+      return c.json(detail ?? { issue: res.issue, comments: [], runs: [], inboxReports: [], provenance: [] })
     } catch (err) {
       launcherLogger.warn('issue.update_failed', { wsId, id, err })
       return c.json({ error: 'write_failed', message: (err as Error).message }, 500)
     }
   })
 
-  // POST /api/issues/:wsId/:id/comments — append a comment to the issue body
-  // under the stable `## Comments` section. Author is fixed to 'human' here
+  // POST /api/issues/:wsId/:id/comments — append a structured markdown comment
+  // to `<id>.comments.json`. Author is fixed to 'human' here
   // (the agent path stamps 'ws:<label>'). Returns the updated detail shape.
   app.post('/:wsId/:id/comments', async (c) => {
     const wsId = c.req.param('wsId')
@@ -205,7 +216,7 @@ export function createIssuesRoutes(svc: WorkspaceService): Hono {
       })
       launcherLogger.info('issue.comment_added', { wsId, id, author: 'human' })
       const detail = await svc.issueDetail(wsId, id)
-      return c.json(detail ?? { issue: res.issue, runs: [], inboxReports: [] })
+      return c.json(detail ?? { issue: res.issue, comments: [res.comment], runs: [], inboxReports: [], provenance: [] })
     } catch (err) {
       launcherLogger.warn('issue.comment_failed', { wsId, id, err })
       return c.json({ error: 'write_failed', message: (err as Error).message }, 500)

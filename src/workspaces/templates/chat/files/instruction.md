@@ -141,7 +141,7 @@ When you start, or whenever you've lost the thread, scan it:
 `alice-workspace issue list` gives you titles across all workspaces. Read like a
 human — scan titles, use status/priority/assignee to judge urgency, then drill
 into those with `alice-workspace issue show --id <name>`, which returns one
-issue in full (body + run history + inbox reports). You pass the issue's
+issue in full (What + structured comments + run history + inbox reports). You pass the issue's
 **name**, not a workspace id — `show` resolves it for you.
 
 ```bash

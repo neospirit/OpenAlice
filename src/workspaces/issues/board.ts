@@ -7,7 +7,7 @@
  * shows ALL issues (scheduled or not); a scheduled issue additionally carries its
  * firing markers (`lastFiredAtMs` / `nextDueAtMs`) so the row matches real firing.
  *
- * Phase 1 is read-only and the list view does NOT include the markdown body — the
+ * Phase 1 is read-only and the list view does NOT include markdown What — the
  * Phase 2 detail view loads it. Keeping the body out keeps the poll payload small.
  */
 
@@ -24,9 +24,10 @@ import type {
   HeadlessTaskStatus,
 } from '../headless-task-registry.js'
 import { issueExecution, type IssueExecution, type IssuePriority, type IssueRecord, type IssueStatus } from './declaration.js'
+import type { IssueComment } from './comments.js'
 
 /** One board row: the issue's display fields, plus — iff it self-schedules — its
- *  `when` and the scanner's firing markers. No markdown body (Phase 2 loads it). */
+ *  `when` and the scanner's firing markers. No markdown What (Phase 2 loads it). */
 export interface IssuesSnapshotIssue {
   id: string
   title: string
@@ -202,24 +203,22 @@ export interface IssueFiringMarkers {
 
 // ==================== Detail (Phase 2a) ====================
 // The read-only shape GET /api/issues/:wsId/:id returns: one issue's full
-// fields INCLUDING the markdown body and (iff scheduled) its firing markers +
+// fields INCLUDING markdown What and (iff scheduled) its firing markers +
 // scheduling frontmatter, plus that issue's headless run history (its Activity
-// feed). Unlike the board list, the detail loads the body and the runs.
+// feed). Unlike the board list, the detail loads What and the runs.
 
-/** One issue's full detail fields: the board row's fields + the markdown body +
- *  the scheduling frontmatter (`what`/`agent`). Markers are present iff scheduled. */
+/** One issue's full detail fields: the board row's fields + the canonical
+ * markdown What. Markers are present iff scheduled. */
 export interface IssueDetailIssue {
   id: string
   title: string
-  /** Markdown description body (the list view omits this; the detail loads it). */
-  body: string
+  /** Canonical markdown work definition and exact scheduled prompt. */
+  what: string
   status: IssueStatus
   priority: IssuePriority
   assignee: string
   /** Present iff the issue self-schedules. */
   when?: Schedule
-  /** Scheduled fire prompt override (frontmatter `what`), if set. */
-  what?: string
   /** Adapter id for the scheduled fire (frontmatter `agent`), if set. */
   agent?: string
   /** Effective policy; legacy files project as fresh. */
@@ -234,6 +233,8 @@ export interface IssueDetailIssue {
  *  the inbox reports it produced. */
 export interface IssueDetail {
   issue: IssueDetailIssue
+  /** Structured markdown comments loaded from the adjacent JSON sidecar. */
+  comments: IssueComment[]
   /** This issue's headless runs (wsId + issueId match), newest first.
    *  Runtime-native session ids are deliberately not part of this projection. */
   runs: IssueRunRecord[]
@@ -322,7 +323,7 @@ export function issueAssigneeForWorkspace(issue: IssueRecord, workspaceTag?: str
 }
 
 /** Map a validated issue (+ its firing markers, iff scheduled) to the detail
- *  issue shape. Keeps the body and the scheduling frontmatter the board drops. */
+ *  issue shape. Keeps What and scheduling frontmatter the board drops. */
 export function detailIssue(
   issue: IssueRecord,
   markers: IssueFiringMarkers | null,
@@ -331,12 +332,11 @@ export function detailIssue(
   return {
     id: issue.id,
     title: issue.title,
-    body: issue.body,
+    what: issue.what,
     status: issue.status,
     priority: issue.priority,
     assignee: issueAssigneeForWorkspace(issue, workspaceTag),
     ...(issue.when ? { when: issue.when } : {}),
-    ...(issue.what ? { what: issue.what } : {}),
     ...(issue.agent ? { agent: issue.agent } : {}),
     execution: issueExecution(issue),
     ...(markers ? { lastFiredAtMs: markers.lastFiredAtMs, nextDueAtMs: markers.nextDueAtMs } : {}),
@@ -345,7 +345,7 @@ export function detailIssue(
 
 /** Map one validated issue (+ its firing markers, iff scheduled) to a board row.
  *  Pure: the caller resolves `markers` for scheduled issues and passes `null` for
- *  pure board work items. The markdown body is intentionally dropped. */
+ *  pure board work items. Markdown What is intentionally dropped. */
 export function snapshotBoardIssue(
   issue: IssueRecord,
   markers: IssueFiringMarkers | null,

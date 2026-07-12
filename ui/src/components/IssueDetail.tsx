@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { ArrowLeft, Hash, History, Inbox, ListChecks, Settings, TrendingUp, UserRound, UsersRound, X } from 'lucide-react'
+import { ArrowLeft, Hash, History, Inbox, ListChecks, Pencil, Settings, TrendingUp, UserRound, UsersRound, X } from 'lucide-react'
 
 import type { HeadlessTaskRecord, HeadlessTaskStatus } from '../api/headless'
 import type { InboxEntry } from '../api/inbox'
@@ -377,7 +377,7 @@ function PropertiesRail({
   sessions: readonly WorkspaceSessionDirectoryEntry[]
   saving: boolean
   error: string | null
-  onPatch: (patch: { status?: IssueStatus; priority?: IssuePriority; assignee?: string; agent?: string | null; execution?: IssueExecution }) => void
+  onPatch: (patch: { status?: IssueStatus; priority?: IssuePriority; assignee?: string; agent?: string | null; execution?: IssueExecution; what?: string }) => void
   onConfigureAgent: (agent: AgentId) => void
 }) {
   const meta = STATUS_META[issue.status]
@@ -486,10 +486,8 @@ function PropertiesRail({
 // ==================== Comment composer ====================
 
 /**
- * Human comment composer. POSTs to the comments endpoint (author = "human");
- * the response carries the updated body (with the new `## Comments` block), so
- * we hand it straight to the detail hook's `mutate` — the existing markdown
- * renderer in the main column surfaces the comment. No client-side re-parsing.
+ * Human comment composer. Comments are markdown, but persist in the structured
+ * per-Issue JSON sidecar rather than the agent-editable What document.
  */
 function CommentComposer({
   wsId,
@@ -547,6 +545,111 @@ function CommentComposer({
         >
           {sending ? 'Sending…' : 'Comment'}
         </button>
+      </div>
+    </section>
+  )
+}
+
+// ==================== Canonical What editor ====================
+
+function WhatEditor({
+  value,
+  scheduled,
+  saving,
+  onSave,
+  onWikilink,
+}: {
+  value: string
+  scheduled: boolean
+  saving: boolean
+  onSave: (what: string) => Promise<boolean>
+  onWikilink: (key: string) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value)
+  const [preview, setPreview] = useState(false)
+
+  useEffect(() => {
+    if (!editing) setDraft(value)
+  }, [editing, value])
+
+  const save = useCallback(async () => {
+    const what = draft.trim()
+    if (!what || saving) return
+    if (await onSave(what)) {
+      setEditing(false)
+      setPreview(false)
+    }
+  }, [draft, onSave, saving])
+
+  return (
+    <section className="mt-4 border-t border-border/60 pt-4">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted/80">What</h2>
+          <p className="mt-1 text-[11px] leading-snug text-muted/65">
+            {scheduled ? 'This exact markdown is sent to the agent on every scheduled run.' : 'The canonical markdown definition of this work item.'}
+          </p>
+        </div>
+        {!editing && (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted transition-colors hover:border-accent/40 hover:text-text"
+          >
+            <Pencil size={12} /> Edit
+          </button>
+        )}
+      </div>
+      {editing ? (
+        <div>
+          <textarea
+            autoFocus
+            rows={14}
+            value={draft}
+            disabled={saving}
+            onChange={(event) => setDraft(event.target.value)}
+            className="w-full resize-y rounded-lg border border-border bg-bg px-3 py-2.5 font-mono text-[13px] leading-relaxed text-text outline-none transition-colors focus:border-accent/60 focus:shadow-[0_0_0_1px_var(--color-accent-dim)] disabled:opacity-50"
+          />
+          {preview && (
+            <div className="mt-3 rounded-lg border border-border bg-bg-secondary p-4">
+              <MarkdownContent text={draft} onWikilink={onWikilink} />
+            </div>
+          )}
+          <div className="mt-2 flex items-center justify-end gap-2">
+            <button type="button" onClick={() => setPreview((value) => !value)} className="rounded-md px-2.5 py-1.5 text-xs text-muted hover:text-text">
+              {preview ? 'Hide preview' : 'Preview'}
+            </button>
+            <button type="button" onClick={() => { setEditing(false); setDraft(value); setPreview(false) }} disabled={saving} className="rounded-md px-2.5 py-1.5 text-xs text-muted hover:text-text disabled:opacity-50">
+              Cancel
+            </button>
+            <button type="button" onClick={() => void save()} disabled={saving || !draft.trim() || draft.trim() === value.trim()} className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-bg disabled:cursor-not-allowed disabled:opacity-40">
+              {saving ? 'Saving…' : 'Save What'}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <MarkdownContent text={value} onWikilink={onWikilink} />
+      )}
+    </section>
+  )
+}
+
+function IssueComments({ comments }: { comments: NonNullable<IssueDetailData['comments']> }) {
+  if (comments.length === 0) return null
+  return (
+    <section className="mt-8">
+      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted/70">Comments</h2>
+      <div className="space-y-3">
+        {comments.map((comment) => (
+          <article key={comment.id} className="rounded-lg border border-border bg-bg-secondary px-4 py-3">
+            <div className="mb-2 flex items-center justify-between gap-3 text-[11px] text-muted">
+              <span className="font-medium text-text/80">{comment.author}</span>
+              <time dateTime={comment.at}>{new Date(comment.at).toLocaleString()}</time>
+            </div>
+            <MarkdownContent text={comment.markdown} />
+          </article>
+        ))}
       </div>
     </section>
   )
@@ -836,7 +939,7 @@ function WikilinkPicker({
 
 /**
  * Linear-style issue detail (Phase 2b — interactive). Main column = title +
- * rendered markdown body (which now carries the `## Comments` section) +
+ * editable canonical What + structured markdown comments +
  * Activity feed + a comment composer. Right rail = Properties, with status /
  * priority / assignee editable inline (each write PATCHes and applies the
  * server-returned detail — authoritative, refetch-free). The scheduled agent
@@ -985,16 +1088,18 @@ export function IssueDetail({
   )
 
   const onPatch = useCallback(
-    async (patch: { status?: IssueStatus; priority?: IssuePriority; assignee?: string; agent?: string | null; execution?: IssueExecution }) => {
+    async (patch: { status?: IssueStatus; priority?: IssuePriority; assignee?: string; agent?: string | null; execution?: IssueExecution; what?: string }): Promise<boolean> => {
       setSaving(true)
       setActionError(null)
       try {
         const next = await issuesApi.update(wsId, id, patch)
         mutate(next)
+        return true
       } catch (e) {
         // The selects are bound to the (unchanged) server data, so they revert
         // on their own; we just surface why.
         setActionError(e instanceof Error ? e.message : String(e))
+        return false
       } finally {
         setSaving(false)
       }
@@ -1059,6 +1164,7 @@ export function IssueDetail({
   }
 
   const { issue, runs } = data
+  const comments = data.comments ?? []
   const inboxReports = data.inboxReports ?? []
   const provenance = data.provenance ?? []
   const inquiryDescription = inquiryTarget.relation === 'owner'
@@ -1077,13 +1183,13 @@ export function IssueDetail({
             {issue.when && <CadencePill when={issue.when} />}
           </div>
           <h1 className="text-xl font-semibold text-text">{issue.title}</h1>
-          <div className="mt-4 border-t border-border/60 pt-4">
-            {issue.body.trim() ? (
-              <MarkdownContent text={issue.body} onWikilink={onWikilink} />
-            ) : (
-              <p className="text-sm text-muted">No description.</p>
-            )}
-          </div>
+          <WhatEditor
+            value={issue.what}
+            scheduled={Boolean(issue.when)}
+            saving={saving}
+            onSave={(what) => onPatch({ what })}
+            onWikilink={(key) => { void onWikilink(key) }}
+          />
           <InquiryPanel
             title="Ask about this Issue"
             description={inquiryDescription}
@@ -1117,6 +1223,7 @@ export function IssueDetail({
               </div>
             )}
           />
+          <IssueComments comments={comments} />
           <CommentComposer wsId={wsId} id={id} onPosted={mutate} />
           <ProvenanceTimeline records={provenance} onContinue={continueProvenanceSession} />
           <ActivityFeed

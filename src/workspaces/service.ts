@@ -73,6 +73,7 @@ import {
   type WorkspaceSessionDirectory,
 } from './session-directory.js';
 import { completeOneShotIssueAfterRun } from './issues/auto-complete.js';
+import { readIssueComments } from './issues/comments.js';
 import type { IInboxStore } from '@/core/inbox-store.js';
 import { toSafeInboxOrigin } from '@/core/workspace-tool-center.js';
 import {
@@ -1254,8 +1255,8 @@ export async function createWorkspaceService(opts: CreateWorkspaceServiceOptions
   // workspace, live-reads its issues, finds the matching id, enriches a scheduled
   // issue with the SAME firing math as the board (so last/next agree), and joins
   // the headless registry on wsId+issueId for the issue's run history (Activity
-  // feed). Returns null when the workspace, its issues dir, or the id is absent —
-  // the route maps that to a 404. Includes the markdown body (the list omits it).
+    // feed). Returns null when the workspace, its issues dir, or the id is absent —
+    // the route maps that to a 404. Includes canonical What (the list omits it).
   const issueDetail = async (wsId: string, id: string): Promise<IssueDetail | null> => {
     const ws = registry.get(wsId);
     if (!ws) return null;
@@ -1263,6 +1264,11 @@ export async function createWorkspaceService(opts: CreateWorkspaceServiceOptions
     if (!res.ok) return null; // absent or unreadable issues dir ⇒ no such issue
     const issue = res.issues.find((i) => i.id === id);
     if (!issue) return null;
+    const commentsResult = await readIssueComments(ws.dir, issue.id);
+    const comments = commentsResult.ok ? commentsResult.comments : [];
+    if (!commentsResult.ok) {
+      launcherLogger.warn('issue.comments_invalid', { wsId: ws.id, issueId: issue.id, error: commentsResult.error });
+    }
     let markers: IssueFiringMarkers | null = null;
     if (issue.when) {
       const fired = snapshotScheduledIssue(
@@ -1300,7 +1306,7 @@ export async function createWorkspaceService(opts: CreateWorkspaceServiceOptions
     const provenance = issueProvenanceRecords(provenanceStore.list({
       artifact: { kind: 'issue', workspaceId: ws.id, issueId: issue.id },
     }));
-    return { issue: detailIssue(issue, markers, ws.tag), runs, inboxReports, provenance };
+    return { issue: detailIssue(issue, markers, ws.tag), comments, runs, inboxReports, provenance };
   };
 
   const sessionDirectory = async (

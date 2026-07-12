@@ -3,7 +3,7 @@ name: self-scheduling
 description: >
   Track and self-schedule work for THIS workspace by writing one markdown file
   per issue under `.alice/issues/<id>.md` at the workspace root. Each file is
-  YAML frontmatter + a markdown description. An issue WITHOUT a `when` field is
+  YAML frontmatter + one canonical markdown What. An issue WITHOUT a `when` field is
   just a tracked work item (it shows on the Issue board, the scanner ignores
   it). An issue WITH a `when` field self-schedules: the launcher scans the dir
   and, when it's due, spawns a fresh headless run of this workspace with your
@@ -26,7 +26,7 @@ summon a headless agent run.
 
 This workspace owns its work as **one markdown file per issue** in `.alice/issues/`
 at its own root. Each file is YAML frontmatter (the structured fields) plus a
-markdown body (the human description).
+markdown What (the human-visible work definition and exact scheduled prompt).
 
 - An issue **without** `when` is a plain **tracked work item** — it appears on
   the Issue board for you and the user to see, but the scanner never fires it.
@@ -44,14 +44,14 @@ You have two equivalent paths, and both write the **same**
 1. **`alice-workspace issue …` — the convenient agent surface, and what you
    should reach for first.** A small set of verbs does the read-modify-write for
    you: id slug derivation, frontmatter validation against the allowed
-   status/priority enums, the stable `## Comments` section, and not clobbering an
+   status/priority enums, structured comment sidecars, and not clobbering an
    existing id. The same tools are also exposed over **MCP** — it is *one*
    registration behind both, so an MCP-speaking agent gets the identical surface
    with no separate path.
 2. **Editing the file directly** with your normal file tools. Reach for this when
-   you are writing the markdown **body** or the scheduling frontmatter
-   (`when` / `what` / `agent`) — the CLI verbs cover the board fields and
-   comments, but the body and the schedule shape read most clearly as text. The
+   you are writing rich markdown **What** or scheduling frontmatter
+   (`when` / `agent`) — the CLI verbs cover the board fields, What, and
+   comments, but the document and schedule shape read most clearly as text. The
    file is always the single source of truth either way.
 
 ### CLI verbs
@@ -60,7 +60,7 @@ You have two equivalent paths, and both write the **same**
 # list — scan the WHOLE board: every workspace's issues as compact title rows
 alice-workspace issue list
 
-# show — one issue in full, resolved by its (global) name: frontmatter + body +
+# show — one issue in full, resolved by its (global) name: frontmatter + What + comments +
 # run history + inbox reports. --id takes a name OR id and resolves across the
 # board; a name two workspaces share returns the candidates to pick from.
 alice-workspace issue show --id morning-scan
@@ -69,14 +69,14 @@ alice-workspace issue show --id morning-scan
 # from the title when omitted. Creating over an existing id is refused.
 alice-workspace issue create --title "Split the data fetcher" \
   --priority medium \
-  --body "src/fetch.ts mixes the HTTP call with the normalization step."
+  --what "src/fetch.ts mixes the HTTP call with the normalization step."
 
-# update — patch board fields only (status / priority / assignee); the body and
-# scheduling frontmatter are left untouched. Setting status done|canceled is how
+# update — patch board fields or canonical What; scheduling frontmatter is left
+# untouched. Setting status done|canceled is how
 # you silence a self-scheduled issue (there is no separate enabled flag).
 alice-workspace issue update --id morning-scan --status done
 
-# comment — append a note under the ## Comments section, authored as
+# comment — append markdown to the structured `<id>.comments.json` sidecar, authored as
 # ws:<this workspace>. Use it for a progress note, finding, or a question.
 alice-workspace issue comment --id morning-scan --text "Brief pushed; SPY gapped +0.4%."
 ```
@@ -111,17 +111,14 @@ status: todo
 priority: high
 assignee: ws:research
 when: { kind: cron, cron: "30 8 * * 1-5" }
-what: >
-  Pull pre-market movers and overnight news for my watchlist, write a short
-  brief to research/premarket.md, then run:
-  alice-workspace inbox push --doc research/premarket.md --comments "Pre-market brief".
 agent: claude
 execution: { mode: resume, resumeId: resume-calm-amber-river-a1b2c3 }
 ---
 
-Every trading morning at 08:30, assemble the pre-market picture for the
-watchlist so I have it before the open. Movers, gaps, and any overnight
-headlines that move the thesis.
+Pull pre-market movers and overnight news for my watchlist. Every trading
+morning at 08:30, assemble the pre-market picture before the open, write a short
+brief to `research/premarket.md`, then push it to Inbox. Cover movers, gaps, and
+overnight headlines that move the thesis.
 ```
 
 ## Example — an unscheduled work item (`.alice/issues/refactor-fetcher.md`)
@@ -142,7 +139,7 @@ touch fetching.
 
 The first self-schedules (it has `when`) and keeps one accountable product
 Session; the second is a pure work item the
-scanner ignores. Drop the `when`/`what`/`agent` lines and any issue becomes a
+scanner ignores. Drop the `when`/`agent` lines and any issue becomes a
 plain tracked item; add a `when` and it starts firing.
 
 ## Frontmatter fields
@@ -168,9 +165,6 @@ plain tracked item; add a `when` and it starts firing.
     lists `1,15`, steps `*/15`). Wall-clock; waits for the next match.
   - `{ kind: at, at: "2026-03-01T13:30:00Z" }` — run ONCE at an ISO timestamp,
     then never again.
-- **`what`** *(optional)* — the prompt for the scheduled headless run (see
-  below). If omitted, the fire prompt falls back to the title plus the markdown
-  body. Only meaningful when `when` is present.
 - **`agent`** *(optional)* — which CLI runs the scheduled job; defaults to this
   workspace's default agent. It selects the worker kind for `fresh`; a `resume`
   owner already has an immutable runtime, so that Session's runtime wins.
@@ -182,13 +176,14 @@ plain tracked item; add a `when` and it starts firing.
     to bind the current Session without guessing its id. Existing legacy Issues
     that omit this field keep the historical `fresh` behavior.
 
-The markdown **body** below the closing `---` is the issue's description: free
-prose for you and the user. For an unscheduled item it's the whole point; for a
-scheduled item with no `what`, the body becomes part of the fire prompt.
+The markdown **What** below the closing `---` is the Issue's canonical work
+definition. It is useful for every Issue; when scheduled, this exact visible
+markdown becomes the headless prompt. Comments are separate structured markdown
+records in `.alice/issues/<id>.comments.json`, written through `issue comment`.
 
 ## Link entities and issues with `[[name]]`
 
-An issue body can reference things in the `[[]]` knowledge graph, exactly like
+An Issue's What can reference things in the `[[]]` knowledge graph, exactly like
 any other note: write `[[name]]` to link a **tracked entity** (an asset ticker
 or topic, e.g. `[[vst]]`, `[[ai-data-center-power]]`) or **another issue** (by
 its id or title). The link shows up as a backlink on the target's page and is
@@ -208,7 +203,7 @@ avoids the collision flag in the first place.
 ## Write `what` for a headless run
 
 The scheduled run is **headless — nobody is watching, and it cannot see this
-conversation.** Write `what` (or, if you rely on the fallback, the body) as a
+conversation.** Write What as a
 **complete, standalone instruction**, as if handing the job to a fresh teammate
 who has only this workspace's files. Say exactly what to read, do, and produce.
 

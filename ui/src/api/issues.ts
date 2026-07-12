@@ -13,7 +13,7 @@ import type { ScheduleWhen } from './schedule'
  * store. An issue WITH a `when` is scheduled (the scanner fires it as a
  * headless run); an issue WITHOUT `when` is a pure tracked work item.
  *
- * Phase 1 is read-only and the list does NOT carry the markdown body — the
+ * Phase 1 is read-only and the list does NOT carry markdown What — the
  * Phase 2 detail view loads that on demand.
  *
  * Demo handlers MUST import these types (do not inline an ad-hoc shape):
@@ -46,6 +46,14 @@ export interface IssueProvenanceRecord {
   action: IssueProvenanceAction
   origin: IssueProvenanceOrigin
   at: number
+}
+
+export interface IssueComment {
+  id: string
+  author: string
+  at: string
+  /** Full markdown payload. Comments deliberately do not share the agent-editable What file. */
+  markdown: string
 }
 
 export interface IssueListItem {
@@ -128,26 +136,23 @@ export interface WikilinkResolution {
 
 // ==================== Detail (Phase 2a) ====================
 // GET /api/issues/:wsId/:id — the read-only DETAIL shape: one issue's full
-// fields INCLUDING the markdown body and (iff scheduled) its firing markers +
+// fields INCLUDING markdown What and (iff scheduled) its firing markers +
 // scheduling frontmatter, plus that issue's headless run history (its Activity
 // feed). Mirrors the server's `IssueDetail` / `IssueDetailIssue` in
 // `src/workspaces/issues/board.ts`. Demo handlers MUST import these types.
 
-/** One issue's full detail fields: the board row's fields + the markdown body +
- *  the scheduling frontmatter (`what`/`agent`). Markers present iff scheduled. */
+/** One issue's full detail fields plus canonical markdown What. */
 export interface IssueDetailIssue {
   id: string
   title: string
-  /** Markdown description body (the list omits this; the detail loads it). */
-  body: string
+  /** Human-visible work definition; exact scheduled prompt. */
+  what: string
   status: IssueStatus
   priority: IssuePriority
   /** "human" | "ws:<tag|id>" | "unassigned"; missing assignee defaults to the owning workspace. */
   assignee: string
   /** Present iff the issue self-schedules. */
   when?: ScheduleWhen
-  /** Scheduled fire prompt override (frontmatter `what`), if set. */
-  what?: string
   /** Adapter id for the scheduled fire (frontmatter `agent`), if set. */
   agent?: string
   /** Effective scheduled owner policy; legacy server payloads may omit it. */
@@ -161,6 +166,8 @@ export interface IssueDetailIssue {
 /** GET /api/issues/:wsId/:id — one issue + its run history (Activity feed). */
 export interface IssueDetail {
   issue: IssueDetailIssue
+  /** Structured markdown comments from `<id>.comments.json`. */
+  comments?: IssueComment[]
   /** This issue's headless runs (wsId + issueId match), newest first. */
   runs: HeadlessTaskRecord[]
   /**
@@ -182,7 +189,7 @@ export const issuesApi = {
     return fetchJson<IssueSnapshot>('/api/issues')
   },
 
-  /** Read-only detail: one issue's full fields + markdown body + its run feed. */
+  /** Read-only detail: one issue's full fields + canonical What + its run feed. */
   async getDetail(wsId: string, id: string): Promise<IssueDetail> {
     return fetchJson<IssueDetail>(
       `/api/issues/${encodeURIComponent(wsId)}/${encodeURIComponent(id)}`,
@@ -202,7 +209,7 @@ export const issuesApi = {
 
   /**
    * Human write path: patch one issue's editable fields (any subset of
-   * status / priority / assignee / agent). `agent: null` clears the scheduled
+   * status / priority / assignee / agent / what). `agent: null` clears the scheduled
    * runtime override so the workspace default applies. Returns the SAME detail
    * shape as `getDetail` so the caller can apply it directly (refetch-free).
    * Working-tree write on the server, no commit.
@@ -210,7 +217,7 @@ export const issuesApi = {
   async update(
     wsId: string,
     id: string,
-    patch: { status?: IssueStatus; priority?: IssuePriority; assignee?: string; agent?: string | null; execution?: IssueExecution },
+    patch: { status?: IssueStatus; priority?: IssuePriority; assignee?: string; agent?: string | null; execution?: IssueExecution; what?: string },
   ): Promise<IssueDetail> {
     return fetchJson<IssueDetail>(
       `/api/issues/${encodeURIComponent(wsId)}/${encodeURIComponent(id)}`,
@@ -219,10 +226,8 @@ export const issuesApi = {
   },
 
   /**
-   * Human write path: append a comment (author fixed to "human" server-side) to
-   * the issue body's `## Comments` section. Returns the updated detail — the
-   * returned `body` already carries the new comment, so the existing markdown
-   * renderer surfaces it with no client-side re-parsing.
+   * Human write path: append a structured markdown comment (author fixed to
+   * "human" server-side) to the Issue's JSON sidecar.
    */
   async addComment(wsId: string, id: string, text: string): Promise<IssueDetail> {
     return fetchJson<IssueDetail>(

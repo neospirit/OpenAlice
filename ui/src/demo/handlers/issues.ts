@@ -61,12 +61,13 @@ export const issuesHandlers = [
       assignee?: unknown
       agent?: unknown
       execution?: unknown
+      what?: unknown
     } | null
     if (!body || typeof body !== 'object') {
       return HttpResponse.json({ error: 'invalid_body' }, { status: 400 })
     }
 
-    const patch: { status?: IssueStatus; priority?: IssuePriority; assignee?: string; agent?: string | null; execution?: IssueExecution } = {}
+    const patch: { status?: IssueStatus; priority?: IssuePriority; assignee?: string; agent?: string | null; execution?: IssueExecution; what?: string } = {}
     if (body.status !== undefined) {
       if (!ISSUE_STATUSES.includes(body.status as IssueStatus)) {
         return HttpResponse.json({ error: 'invalid_status' }, { status: 400 })
@@ -107,12 +108,19 @@ export const issuesHandlers = [
         return HttpResponse.json({ error: 'invalid_execution' }, { status: 400 })
       }
     }
+    if (body.what !== undefined) {
+      if (typeof body.what !== 'string' || !body.what.trim()) {
+        return HttpResponse.json({ error: 'invalid_what' }, { status: 400 })
+      }
+      patch.what = body.what.trim()
+    }
     if (
       patch.status === undefined &&
       patch.priority === undefined &&
       patch.assignee === undefined &&
       patch.agent === undefined
       && patch.execution === undefined
+      && patch.what === undefined
     ) {
       return HttpResponse.json({ error: 'no_fields' }, { status: 400 })
     }

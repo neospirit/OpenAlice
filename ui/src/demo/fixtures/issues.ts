@@ -1,5 +1,5 @@
 import type { HeadlessTaskRecord } from '../../api/headless'
-import type { IssueDetail, IssueExecution, IssuePriority, IssueSnapshot, IssueStatus } from '../../api/issues'
+import type { IssueComment, IssueDetail, IssueExecution, IssuePriority, IssueSnapshot, IssueStatus } from '../../api/issues'
 import { demoInboxEntries } from './inbox'
 
 // GET /api/issues aggregates every workspace's declared issues by SCANNING
@@ -421,14 +421,18 @@ export function demoIssueDetail(wsId: string, id: string): IssueDetail | null {
   const boardIssue = findBoardIssue(wsId, id)
   if (!boardIssue) return null
   const extras = demoIssueExtras[`${wsId}/${id}`]
-  const body = extras?.body ?? `${boardIssue.title}\n\n(No description.)`
+  const legacyBody = extras?.body?.trim() ?? ''
+  const explicitWhat = extras?.what?.trim() ?? ''
+  const what = explicitWhat && legacyBody && explicitWhat !== legacyBody
+    ? `${explicitWhat}\n\n## Context\n\n${legacyBody}`
+    : explicitWhat || legacyBody || boardIssue.title
   return {
     issue: {
       ...boardIssue,
-      body,
-      ...(extras?.what ? { what: extras.what } : {}),
+      what,
       ...(extras?.agent ? { agent: extras.agent } : {}),
     },
+    comments: demoIssueComments[`${wsId}/${id}`] ?? [],
     runs: extras?.runs ?? [],
     // issue→inbox direction of the cross-link: every inbox report this issue
     // produced (server-stamped origin.issueId === id, this workspace), newest
@@ -446,20 +450,9 @@ export function demoIssueDetail(wsId: string, id: string): IssueDetail | null {
 // UI reflects edits/comments just like the real working-tree-only writes do. The
 // board snapshot is the single source of truth for status/priority/assignee
 // (GET list + GET detail both read it live, so one mutation updates both); the
-// markdown body — which now carries the appended `## Comments` section — lives in
-// the extras map, materialized on demand for rows that had no extras entry.
-
-/** Append one comment block to a markdown body, under a stable `## Comments`
- *  heading (created if absent). Mirrors the server's appendIssueComment format:
- *  `**<author>** · <ISO timestamp>` then a blank line then the text. */
-function appendCommentToBody(body: string, author: string, text: string): string {
-  const block = `**${author}** · ${new Date().toISOString()}\n\n${text}`
-  const trimmed = body.replace(/\s+$/, '')
-  const hasSection = /(^|\n)## Comments\s*(\n|$)/.test(trimmed)
-  return hasSection
-    ? `${trimmed}\n\n${block}\n`
-    : `${trimmed}\n\n## Comments\n\n${block}\n`
-}
+// What stays in the markdown fixture; comments mirror the server's independent
+// per-Issue JSON sidecar so editing one cannot corrupt the other.
+const demoIssueComments: Record<string, IssueComment[]> = {}
 
 /** PATCH backing: mutate the board issue's status/priority/assignee in place,
  *  then return the fresh detail shape (same `{ issue, runs }` as GET). Returns
@@ -467,7 +460,7 @@ function appendCommentToBody(body: string, author: string, text: string): string
 export function demoIssueUpdate(
   wsId: string,
   id: string,
-  patch: { status?: IssueStatus; priority?: IssuePriority; assignee?: string; agent?: string | null; execution?: IssueExecution },
+  patch: { status?: IssueStatus; priority?: IssuePriority; assignee?: string; agent?: string | null; execution?: IssueExecution; what?: string },
 ): IssueDetail | null {
   const boardIssue = findBoardIssue(wsId, id)
   if (!boardIssue) return null
@@ -475,6 +468,16 @@ export function demoIssueUpdate(
   if (patch.priority !== undefined) boardIssue.priority = patch.priority
   if (patch.assignee !== undefined) boardIssue.assignee = patch.assignee
   if (patch.execution !== undefined) boardIssue.execution = patch.execution
+  if (patch.what !== undefined) {
+    const key = `${wsId}/${id}`
+    const existing = demoIssueExtras[key]
+    if (existing) {
+      existing.what = patch.what
+      existing.body = ''
+    } else {
+      demoIssueExtras[key] = { body: '', what: patch.what, runs: [] }
+    }
+  }
   if (patch.agent !== undefined) {
     if (patch.agent === null) delete boardIssue.agent
     else boardIssue.agent = patch.agent
@@ -490,9 +493,7 @@ export function demoIssueUpdate(
   return demoIssueDetail(wsId, id)
 }
 
-/** POST-comment backing: append a comment to the issue's markdown body (creating
- *  an extras entry for rows that only had the generic fallback body), then return
- *  the fresh detail shape. Returns null when the issue doesn't exist (→ 404). */
+/** POST-comment backing: append to the structured sidecar fixture. */
 export function demoIssueAddComment(
   wsId: string,
   id: string,
@@ -502,10 +503,8 @@ export function demoIssueAddComment(
   const boardIssue = findBoardIssue(wsId, id)
   if (!boardIssue) return null
   const key = `${wsId}/${id}`
-  const existing = demoIssueExtras[key]
-  const currentBody = existing?.body ?? `${boardIssue.title}\n\n(No description.)`
-  const nextBody = appendCommentToBody(currentBody, author, text)
-  if (existing) existing.body = nextBody
-  else demoIssueExtras[key] = { body: nextBody, runs: [] }
+  const comments = demoIssueComments[key] ?? []
+  comments.push({ id: `demo-comment-${comments.length + 1}`, author, at: new Date().toISOString(), markdown: text })
+  demoIssueComments[key] = comments
   return demoIssueDetail(wsId, id)
 }

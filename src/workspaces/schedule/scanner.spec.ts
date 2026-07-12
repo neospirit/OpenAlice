@@ -196,13 +196,13 @@ describe('ScheduleScanner', () => {
     expect(scanner.snapshot()!.workspaces[0].tasks.map((t) => t.id)).toEqual(['sched'])
   })
 
-  it('falls back to title+body for the fire prompt when `what` is absent', async () => {
+  it('sends the canonical markdown What without prepending the display title', async () => {
     const ws = await makeWs('w1', [
       { id: 't1', title: 'Do research', when: { kind: 'every', every: '30m' }, body: 'scan movers' },
     ])
     const { scanner, dispatch } = scannerFor([ws])
     await scanner.scan()
-    expect(dispatch).toHaveBeenCalledWith(ws, headlessAdapter, 'Do research\n\nscan movers', expect.any(Number), 't1')
+    expect(dispatch).toHaveBeenCalledWith(ws, headlessAdapter, 'scan movers', expect.any(Number), 't1')
   })
 
   it('fires a never-fired cron issue whose occurrence is within the last tick (not never)', async () => {

@@ -16,3 +16,4 @@ Each row corresponds to one migration in `src/migrations/`. The runner applies p
 | `0014_headless_resume_identity` | 0.75.0-beta | 2026-07-11 | workspaces/state/headless-tasks.json | Assign durable resumeId values to historical headless runs so execution identity and resumable conversation identity remain distinct. |
 | `0015_resume_identity_registry` | 0.75.0-beta | 2026-07-11 | workspaces/state/resume-identities.json, workspaces/state/sessions/*.json | Create the backend resumeId to native runtime session-id registry. |
 | `0016_artifact_provenance_store` | 0.75.0-beta | 2026-07-11 | workspaces/state/artifact-provenance.json | Create the durable product Session to artifact provenance store. |
+| `0017_issue_what_and_comment_sidecars` | 0.75.0-beta | 2026-07-12 | workspaces/<id>/.alice/issues/*.md, workspaces/<id>/.alice/issues/*.comments.json | Make markdown What the sole Issue work definition and move comments into structured per-Issue JSON sidecars. |

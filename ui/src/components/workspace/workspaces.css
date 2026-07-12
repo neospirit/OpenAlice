@@ -998,12 +998,13 @@
 
 .webpi-empty { padding: 12vh 16px; text-align: center; color: var(--color-text-muted); font-size: 13px; }
 .webpi-message { display: flex; align-items: flex-start; gap: 10px; margin: 0 0 24px; }
-.webpi-message.is-user { margin-left: 12%; }
+.webpi-message.is-user { flex-direction: row-reverse; margin-left: 12%; }
 .webpi-message.is-tool { margin: -12px 0 16px 36px; }
 .webpi-avatar { width: 26px; height: 26px; flex: 0 0 26px; display: grid; place-items: center; border: 1px solid var(--color-border); border-radius: 8px; color: var(--color-text-muted); background: var(--color-bg-secondary); }
 .webpi-message.is-user .webpi-avatar { color: var(--color-accent); border-color: color-mix(in srgb, var(--color-accent) 35%, var(--color-border)); }
 .webpi-message-body { flex: 1; min-width: 0; font-size: 13px; line-height: 1.65; }
-.webpi-message.is-user .webpi-message-body { padding: 10px 13px; border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-bg-secondary); }
+.webpi-message.is-user .webpi-message-body { flex: 0 1 auto; max-width: min(88%, 760px); padding: 10px 13px; border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-bg-secondary); }
+.webpi-message.is-user .webpi-role { text-align: right; }
 .webpi-role { margin-bottom: 4px; color: var(--color-text-muted); font-size: 10px; font-weight: 650; text-transform: uppercase; letter-spacing: .07em; }
 .webpi-content-parts > * + * { margin-top: 9px; }
 .webpi-detail { padding: 6px 9px; border-left: 2px solid var(--color-border); color: var(--color-text-muted); font-size: 11px; }

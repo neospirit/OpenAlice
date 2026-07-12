@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { ArrowLeft, Hash, History, Inbox, ListChecks, Pencil, Settings, TrendingUp, UserRound, UsersRound, X } from 'lucide-react'
+import { ArrowLeft, Hash, History, Inbox, ListChecks, Settings, TrendingUp, UserRound, UsersRound, X } from 'lucide-react'
 
 import type { HeadlessTaskRecord, HeadlessTaskStatus } from '../api/headless'
 import type { InboxEntry } from '../api/inbox'
@@ -556,51 +556,21 @@ function CommentComposer({
 function WhatEditor({
   value,
   scheduled,
-  saving,
   onSave,
-  onWikilink,
 }: {
   value: string
   scheduled: boolean
-  saving: boolean
   onSave: (what: string) => Promise<boolean>
-  onWikilink: (key: string) => void
 }) {
-  const [editing, setEditing] = useState(false)
-
   return (
     <section className="mt-4 border-t border-border/60 pt-4">
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div>
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted/80">What</h2>
-          <p className="mt-1 text-[11px] leading-snug text-muted/65">
-            {scheduled ? 'This exact markdown is sent to the agent on every scheduled run.' : 'The canonical markdown definition of this work item.'}
-          </p>
-        </div>
-        {!editing && (
-          <button
-            type="button"
-            onClick={() => setEditing(true)}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted transition-colors hover:border-accent/40 hover:text-text"
-          >
-            <Pencil size={12} /> Edit
-          </button>
-        )}
+      <div className="mb-2">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-muted/80">What</h2>
+        <p className="mt-1 text-[11px] leading-snug text-muted/65">
+          {scheduled ? 'This exact markdown is sent to the agent on every scheduled run.' : 'The canonical markdown definition of this work item.'}
+        </p>
       </div>
-      {editing ? (
-        <MarkdownWhatEditor
-          value={value}
-          saving={saving}
-          onSave={async (what) => {
-            const saved = await onSave(what)
-            if (saved) setEditing(false)
-            return saved
-          }}
-          onCancel={() => setEditing(false)}
-        />
-      ) : (
-        <MarkdownContent text={value} onWikilink={onWikilink} />
-      )}
+      <MarkdownWhatEditor value={value} onSave={onSave} />
     </section>
   )
 }
@@ -1154,11 +1124,10 @@ export function IssueDetail({
           </div>
           <h1 className="text-xl font-semibold text-text">{issue.title}</h1>
           <WhatEditor
+            key={`${wsId}:${id}`}
             value={issue.what}
             scheduled={Boolean(issue.when)}
-            saving={saving}
             onSave={(what) => onPatch({ what })}
-            onWikilink={(key) => { void onWikilink(key) }}
           />
           <InquiryPanel
             title="Ask about this Issue"

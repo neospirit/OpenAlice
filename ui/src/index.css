@@ -602,11 +602,11 @@ html[lang="ja"] .oa-onboarding-title {
 }
 
 /* Issue What visual editor. Tiptap owns the editable DOM, while these rules
-   deliberately reuse the same markdown typography as read mode so clicking
-   Edit does not feel like falling into a separate source-code application. */
+   deliberately reuse read-mode typography so the always-editable body still
+   feels like part of the Issue rather than a separate source application. */
 .what-editor-content .ProseMirror {
-  min-height: 20rem;
-  padding: 1rem 1.25rem;
+  min-height: 12rem;
+  padding: 0.75rem 1rem;
   outline: none;
   cursor: text;
 }
@@ -617,7 +617,7 @@ html[lang="ja"] .oa-onboarding-title {
   margin-bottom: 0;
 }
 .what-editor-content .ProseMirror-focused {
-  background: color-mix(in srgb, var(--color-accent) 2%, transparent);
+  background: transparent;
 }
 .what-editor-content .ProseMirror-selectednode {
   outline: 2px solid color-mix(in srgb, var(--color-accent) 45%, transparent);

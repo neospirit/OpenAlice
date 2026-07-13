@@ -166,6 +166,8 @@ Read the relevant guide before editing its subsystem:
   packaging, managed Pi, PortableGit/Bash, runtime profiles, and Workspace PATH.
 - [[docs/docker-deployment.md]] — [Docker deployment](docs/docker-deployment.md): server image topology,
   remote-host safety, persistence, health, and container acceptance.
+- [[docs/remote-access.md]] — [Remote access](docs/remote-access.md): SSH tunnel experiment,
+  local/remote ownership, and staged remote-control boundaries.
 - [[docs/connector-service.md]] — [Connector Service](docs/connector-service.md): optional external Inbox
   notification adapters, sealed credentials, health, and Guardian lifecycle.
 - [[docs/ui-interaction-and-motion.md]] — [UI interaction and motion](docs/ui-interaction-and-motion.md):

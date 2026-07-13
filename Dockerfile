@@ -22,6 +22,7 @@ RUN corepack enable && corepack prepare pnpm@11.7.0 --activate
 # of `pnpm install` and must already exist on disk.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 COPY scripts/fix-pty-perms.mjs ./scripts/fix-pty-perms.mjs
+COPY packages/cli/package.json packages/cli/
 COPY packages/guardian-runtime/package.json packages/guardian-runtime/
 COPY packages/connector-protocol/package.json packages/connector-protocol/
 COPY packages/ibkr/package.json packages/ibkr/

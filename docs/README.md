@@ -13,6 +13,7 @@ GitHub navigation.
 | [[docs/development-workflow.md]] | [Development workflow](development-workflow.md) | Branches, delivery modes, PRs, promotions, external review, risk gates |
 | [[docs/managed-workspace-runtime.md]] | [Managed Workspace runtime](managed-workspace-runtime.md) | Electron packaging, managed Pi, PortableGit/Bash, runtime profile, Workspace PATH |
 | [[docs/docker-deployment.md]] | [Docker deployment](docker-deployment.md) | Server image topology, remote-host safety, persistence, health, and container acceptance |
+| [[docs/remote-access.md]] | [Remote access](remote-access.md) | SSH tunnel experiment, local/remote ownership, and staged remote-control boundaries |
 | [[docs/connector-service.md]] | [Connector Service](connector-service.md) | Optional Discord/Telegram Inbox projection, adapters, secrets, health, Guardian lifecycle |
 | [[docs/ui-interaction-and-motion.md]] | [UI interaction and motion](ui-interaction-and-motion.md) | Clickable affordances, shared motion tokens, entrances/disclosures, reduced-motion policy |
 | [[docs/workspace-agent-guidance.md]] | [Workspace agent guidance](workspace-agent-guidance.md) | Always-loaded prompt contract, skill ownership, live CLI authority, guidance versioning |

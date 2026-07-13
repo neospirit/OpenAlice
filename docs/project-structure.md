@@ -73,6 +73,7 @@ services/uta/                  UTA process
 └── src/domain/trading/        all broker and trading-domain implementation
 
 packages/
+├── cli/                       installable OpenAlice connection/control CLI
 ├── guardian-runtime/          process ownership and recovery primitives
 ├── uta-protocol/              schemas and wire types shared by Alice + UTA
 ├── ibkr/                      IBKR TWS protocol package, owned by UTA

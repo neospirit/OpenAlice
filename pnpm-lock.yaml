@@ -171,6 +171,8 @@ importers:
         specifier: ^6.8.9
         version: 6.8.9
 
+  packages/cli: {}
+
   packages/connector-protocol:
     dependencies:
       zod:

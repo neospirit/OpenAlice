@@ -4,6 +4,7 @@ This guide owns the OpenAlice server-image contract, Docker Compose lifecycle,
 remote-host safety boundary, and container smoke requirements. It complements
 [[docs/project-structure.md]] and [[docs/managed-workspace-runtime.md]].
 External notification setup is owned by [[docs/connector-service.md]].
+Private browser access over SSH is owned by [[docs/remote-access.md]].
 
 ## Topology
 
@@ -59,6 +60,10 @@ example Caddy, nginx, Tailscale, or a private tunnel) rather than publishing an
 unencrypted public endpoint. Configure `OPENALICE_TRUSTED_PROXIES` only with
 the actual proxy peer addresses; an overly broad trusted-proxy range weakens
 the localhost/auth boundary.
+
+For the Stage 1 SSH path, keep `47331` private on the host and use
+`openalice ssh <host>` as described in [[docs/remote-access.md]]. The tunnel
+targets host loopback; it does not expose the internal CLI/MCP or UTA ports.
 
 ## Health and Lifecycle
 

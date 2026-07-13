@@ -30,7 +30,8 @@ guides.
 
 Reference notes under `docs/reference/` are non-authoritative research
 material. The [installer script note](reference/install-script/README.md)
-records upstream links and design lessons without vendoring third-party code.
+records Claude Code and Codex upstream links and design lessons without
+vendoring third-party code.
 
 ## Maintenance Rule
 

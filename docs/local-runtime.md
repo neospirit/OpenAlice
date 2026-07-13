@@ -37,15 +37,18 @@ The current installer distributes the small JavaScript CLI from the `dev` ref:
 curl -fsSL https://raw.githubusercontent.com/TraderAlice/OpenAlice/dev/install | bash
 ```
 
-The preview requires Node.js 20 or newer. It installs versioned CLI files under
-`~/.openalice/cli-versions/`, writes stable `openalice` and `openalice.cmd`
-launchers under `~/.openalice/bin/`, and offers to add that bin directory to the
-current shell profile. Before changing files, the interactive installer shows
-its source, version, paths, and shell changes, explains what it will not do, and
-requires an explicit `y` confirmation; blank input cancels without writing. It
-does not clone OpenAlice, write application state, or install Electron. The curl
-entry targets macOS, Linux, WSL, and Git Bash;
-native Windows desktop distribution remains the signed Electron installer.
+The preview requires Node.js 20 or newer. It installs immutable,
+content-addressed CLI releases under `~/.openalice/cli-versions/`, atomically
+switches stable `openalice` and `openalice.cmd` launchers under
+`~/.openalice/bin/`, and offers to manage that bin directory in the current
+shell profile. Before changing files, the interactive installer shows its
+source, action, version, paths, shell changes, and PATH conflicts, explains what
+it will not do, and requires an explicit `y` confirmation; blank input cancels
+without writing. Concurrent installs are locked, stale locks are recovered, and
+the downloaded package and staged launcher must execute successfully before
+the visible command changes. It does not clone OpenAlice, write application
+state, or install Electron. The curl entry targets macOS, Linux, WSL, and Git
+Bash; native Windows desktop distribution remains the signed Electron installer.
 
 Unattended environments have no implicit consent. After reviewing the same
 install plan, pass `--yes` explicitly:
@@ -66,6 +69,12 @@ For local installer development:
 
 ```bash
 ./install --source . --version dev --no-modify-path
+```
+
+To inspect exactly what would change without opening a prompt or writing files:
+
+```bash
+./install --source . --version dev --plan
 ```
 
 To experience the real prompt in a clean, offline container and remain in its
@@ -93,6 +102,11 @@ without `@traderalice/desktop`, runs `pnpm build:server`, starts
 `scripts/guardian/prod.mjs` on `127.0.0.1`, and opens the normal UI. If `pnpm`
 is absent but Corepack is available, preparation uses Corepack with the pnpm
 version pinned by the repository.
+
+When an interactive install is run from inside an OpenAlice checkout, the
+installer presents a separate, default-no `Start OpenAlice now?` prompt after
+the CLI is complete. Installation consent never implies service-start consent,
+and `--yes` remains installation-only for automation.
 
 The CLI stays in the foreground and owns the Guardian lifetime. `Ctrl+C` stops
 the local Runtime. A normal second launch reuses an already healthy local URL;
@@ -131,8 +145,9 @@ retryable, and Electron's managed-runtime policy continues to belong to
 [[docs/managed-workspace-runtime.md]].
 
 The [installer script note](reference/install-script/README.md) records the
-external Claude Code bootstrap sources and the distribution boundaries worth
-studying. Upstream scripts remain untracked local reference material.
+Claude Code bootstrap entry points, the open-source Codex installer sources,
+and the distribution boundaries worth studying. Unlicensed upstream snapshots
+remain untracked local reference material.
 
 ## Security and Network Invariants
 
@@ -152,11 +167,12 @@ When this surface changes:
 1. Run the CLI unit and installer tests.
 2. Run `pnpm test:install:docker` locally. It executes the real `curl | bash`
    download path as a non-root user with an empty home and no global pnpm,
-   then verifies repeat installation, version switching, shell PATH changes,
-   and both launchers while the run container has no external network. This is
-   a manual pre-release gate and intentionally does not run in PR CI.
+   then verifies stale-lock recovery, repeat installation, content-addressed
+   version switching, managed shell PATH changes, and both launchers while the
+   run container has no external network. This is a manual pre-release gate and
+   intentionally does not run in PR CI.
 3. Install from `--source` into a temporary install root and execute the
-   installed symlink.
+   installed launcher.
 4. Run `pnpm build:server` and start with an isolated `--home` and test port.
 5. Open the real localhost route and verify the auth contract and Workspace UI.
 6. Run Guardian recovery checks when launcher ownership changes.

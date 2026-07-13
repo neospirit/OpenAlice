@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { access, mkdtemp, rm } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -31,14 +31,35 @@ describe.skipIf(process.platform === 'win32')('OpenAlice CLI installer', () => {
     ], { env: { ...process.env, HOME: home } })
 
     expect(installed.stdout).toContain('Local Runtime CLI installer')
-    expect(installed.stdout).toContain('Nothing will start yet')
+    expect(installed.stdout).toContain('services stay untouched until you start them yourself')
     expect(installed.stdout).toContain('Install plan')
     expect(installed.stdout).toContain('OpenAlice CLI is ready')
-    await expect(access(join(installRoot, 'cli-versions', 'test_ref', 'bin', 'openalice.mjs'))).resolves.toBeUndefined()
+    const releases = await readdir(join(installRoot, 'cli-versions'))
+    expect(releases).toHaveLength(1)
+    expect(releases[0]).toMatch(/^test_ref-[a-f0-9]{16}$/)
+    await expect(access(join(installRoot, 'cli-versions', releases[0], 'bin', 'openalice.mjs'))).resolves.toBeUndefined()
     await expect(access(join(installRoot, 'bin', 'openalice.cmd'))).resolves.toBeUndefined()
 
     const result = await execFileAsync(join(installRoot, 'bin', 'openalice'), ['--version'])
     expect(result.stdout.trim()).toBe('0.2.0')
+  })
+
+  it('can show the complete plan without creating the install root', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'openalice-install-plan-'))
+    temporaryPaths.push(home)
+    const installRoot = join(home, '.openalice')
+    const installer = join(repositoryRoot, 'install')
+    const result = await execFileAsync('bash', [installer,
+      '--source', repositoryRoot,
+      '--version', 'plan-only',
+      '--install-dir', installRoot,
+      '--no-modify-path',
+      '--plan',
+    ], { env: { ...process.env, HOME: home } })
+
+    expect(result.stdout).toContain('Install plan')
+    expect(result.stdout).toContain('Plan complete')
+    await expect(access(installRoot)).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
   it('requires explicit approval when no interactive terminal is available', async () => {
@@ -92,7 +113,31 @@ describe.skipIf(process.platform === 'win32')('OpenAlice CLI installer', () => {
     expect(result.exitCode).toBe(0)
     expect(result.output).toContain('Continue with this install?')
     expect(result.output).toContain('OpenAlice CLI is ready')
+    expect(result.output).toContain('Start OpenAlice now?')
+    expect(result.output).toContain('Start it when you are ready')
     await expect(access(join(installRoot, 'bin', 'openalice'))).resolves.toBeUndefined()
+  })
+
+  it('refuses to race another live installer', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'openalice-install-lock-'))
+    temporaryPaths.push(home)
+    const installRoot = join(home, '.openalice')
+    const lockDir = join(installRoot, '.cli-install.lock')
+    const installer = join(repositoryRoot, 'install')
+    await mkdir(lockDir, { recursive: true })
+    await writeFile(join(lockDir, 'pid'), `${process.pid}\n`)
+
+    await expect(execFileAsync('bash', [installer,
+      '--source', repositoryRoot,
+      '--version', 'locked',
+      '--install-dir', installRoot,
+      '--no-modify-path',
+      '--yes',
+    ], { env: { ...process.env, HOME: home } })).rejects.toMatchObject({
+      stderr: expect.stringContaining('Another OpenAlice CLI installer is running'),
+    })
+
+    await expect(access(join(installRoot, 'bin', 'openalice'))).rejects.toMatchObject({ code: 'ENOENT' })
   })
 })
 
@@ -111,6 +156,7 @@ function runInstallerInPty(args, { home, reply }) {
     })
     let output = ''
     let replied = false
+    let declinedStart = false
     const timeout = setTimeout(() => {
       terminal.kill()
       rejectPromise(new Error(`installer PTY timed out:\n${output}`))
@@ -121,6 +167,10 @@ function runInstallerInPty(args, { home, reply }) {
       if (!replied && output.includes('Continue with this install?')) {
         replied = true
         terminal.write(reply)
+      }
+      if (!declinedStart && output.includes('Start OpenAlice now?')) {
+        declinedStart = true
+        terminal.write('n\r')
       }
     })
     terminal.onExit(({ exitCode, signal }) => {

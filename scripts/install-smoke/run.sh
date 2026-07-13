@@ -52,6 +52,8 @@ install_version() {
   curl -fsSL "$installer_url" | bash -s -- --yes --version "$version"
 }
 
+mkdir -p "$HOME/.openalice/.cli-install.lock"
+printf '99999999\n' > "$HOME/.openalice/.cli-install.lock/pid"
 install_version smoke-v1
 
 bin_dir="$HOME/.openalice/bin"
@@ -59,24 +61,31 @@ versions_dir="$HOME/.openalice/cli-versions"
 [[ "$($bin_dir/openalice --version)" == "0.2.0" ]] || fail "installed CLI version check failed"
 "$bin_dir/openalice" --help | grep -Fq "OpenAlice CLI" || fail "installed CLI help check failed"
 [[ -f "$bin_dir/openalice.cmd" ]] || fail "Windows launcher was not installed"
-[[ -f "$versions_dir/smoke-v1/bin/openalice.mjs" ]] || fail "versioned CLI entry was not installed"
-cmp /fixture/packages/cli/src/local-start.mjs "$versions_dir/smoke-v1/src/local-start.mjs" \
+[[ ! -e "$HOME/.openalice/.cli-install.lock" ]] || fail "installer lock was not released"
+v1_release="$(find "$versions_dir" -mindepth 1 -maxdepth 1 -type d -name 'smoke-v1-*' -print -quit)"
+[[ -n "$v1_release" && -f "$v1_release/bin/openalice.mjs" ]] || fail "content-addressed CLI release was not installed"
+cmp /fixture/packages/cli/src/local-start.mjs "$v1_release/src/local-start.mjs" \
   || fail "downloaded CLI file differs from the fixture"
 
 expected_path_line="export PATH=$HOME/.openalice/bin:\$PATH"
 path_count="$(grep -Fxc "$expected_path_line" "$HOME/.bashrc" || true)"
 [[ "$path_count" == "1" ]] || fail "installer did not add exactly one shell PATH entry"
+[[ "$(grep -Fxc '# >>> OpenAlice CLI >>>' "$HOME/.bashrc" || true)" == "1" ]] \
+  || fail "installer did not add its managed PATH block"
 
 install_version smoke-v1
 path_count="$(grep -Fxc "$expected_path_line" "$HOME/.bashrc" || true)"
 [[ "$path_count" == "1" ]] || fail "repeat install duplicated the shell PATH entry"
+v1_count="$(find "$versions_dir" -mindepth 1 -maxdepth 1 -type d -name 'smoke-v1-*' | wc -l | tr -d ' ')"
+[[ "$v1_count" == "1" ]] || fail "repeat install duplicated an identical CLI release"
 
 install_version smoke-v2
-[[ -d "$versions_dir/smoke-v1" ]] || fail "version switch removed the previous CLI"
-[[ -d "$versions_dir/smoke-v2" ]] || fail "version switch did not install the new CLI"
+v2_release="$(find "$versions_dir" -mindepth 1 -maxdepth 1 -type d -name 'smoke-v2-*' -print -quit)"
+[[ -d "$v1_release" ]] || fail "version switch removed the previous CLI"
+[[ -n "$v2_release" && -d "$v2_release" ]] || fail "version switch did not install the new CLI"
 version_count="$(find "$versions_dir" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')"
 [[ "$version_count" == "2" ]] || fail "unexpected number of installed CLI versions: $version_count"
-grep -Fq "$versions_dir/smoke-v2/bin/openalice.mjs" "$bin_dir/openalice" \
+grep -Fq "$v2_release/bin/openalice.mjs" "$bin_dir/openalice" \
   || fail "stable launcher did not switch to the latest install"
 [[ "$($bin_dir/openalice --version)" == "0.2.0" ]] || fail "switched CLI is not runnable"
 

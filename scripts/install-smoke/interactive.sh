@@ -42,6 +42,7 @@ fi
 printf '\n[install-playground] You are now in the container after the installer.\n'
 printf 'Try: command -v openalice; openalice --version; cat ~/.bashrc\n'
 printf 'Re-run: curl -fsSL "$OPENALICE_INSTALL_URL" | bash\n'
+printf 'Preview only: curl -fsSL "$OPENALICE_INSTALL_URL" | bash -s -- --plan\n'
 printf 'After a successful re-run: source ~/.bashrc\n'
 printf 'Leave: exit\n\n'
 export PS1='openalice-install> '

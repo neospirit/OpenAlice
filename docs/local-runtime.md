@@ -130,6 +130,12 @@ installer. The same dependency plan must remain inspectable and independently
 retryable, and Electron's managed-runtime policy continues to belong to
 [[docs/managed-workspace-runtime.md]].
 
+The [installer script reference](reference/install-script/README.md) preserves
+a dated snapshot of Claude Code's macOS/Linux, PowerShell, and CMD bootstraps.
+Use it to inform release-channel, manifest, platform-detection, and CLI-owned
+installation design. It is third-party reference material, not an OpenAlice
+installer implementation or a substitute for current runtime verification.
+
 ## Security and Network Invariants
 
 - The CLI always sets `OPENALICE_BIND_HOST=127.0.0.1` for local startup.

@@ -28,6 +28,11 @@ GitHub navigation.
 Other files under `docs/images/` are README/product assets rather than owner
 guides.
 
+Reference snapshots under `docs/reference/` are non-authoritative research
+material rather than owner guides. The [installer script reference](reference/install-script/README.md)
+preserves dated Claude Code bootstrap snapshots and the OpenAlice distribution
+decisions derived from them.
+
 ## Maintenance Rule
 
 - Every owner guide states what it owns and points to the current load-bearing

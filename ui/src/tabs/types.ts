@@ -16,7 +16,7 @@
 export type WorkspaceSource = 'chat'
 
 /** One source of truth for the Dev sidebar and `/dev/:tab` URL contract. */
-export const DEV_TABS = ['tools', 'connectors', 'onboarding', 'snapshots', 'logs', 'simulator'] as const
+export const DEV_TABS = ['tools', 'onboarding', 'snapshots', 'logs', 'simulator'] as const
 export type DevTab = typeof DEV_TABS[number]
 
 export function isDevTab(value: string): value is DevTab {
@@ -30,6 +30,7 @@ export type ViewSpec =
   | { kind: 'template-detail';  params: { name: string } }
   | { kind: 'portfolio';      params: Record<string, never> }
   | { kind: 'trading-as-git'; params: Record<string, never> }
+  | { kind: 'connectors';     params: Record<string, never> }
   | { kind: 'issue';          params: Record<string, never> }
   | { kind: 'issue-detail';   params: { wsId: string; id: string } }
   | { kind: 'tracked-issue-detail'; params: { wsId: string; id: string } }
@@ -62,6 +63,7 @@ export type ActivitySection =
   | 'tracked'
   | 'workspaces'
   | 'trading-as-git'
+  | 'connectors'
   | 'settings'
   | 'dev'
   | 'market'

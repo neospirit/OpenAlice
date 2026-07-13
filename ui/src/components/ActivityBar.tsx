@@ -1,4 +1,4 @@
-import { type LucideIcon, MessageSquare, Inbox, Telescope, LineChart, GitBranch, BarChart3, Newspaper, Zap, Settings, Code2, TerminalSquare, ChevronDown, Info, ListChecks, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { type LucideIcon, MessageSquare, Inbox, Telescope, LineChart, GitBranch, BarChart3, Newspaper, Zap, Settings, Code2, TerminalSquare, ChevronDown, Info, ListChecks, PanelLeftClose, PanelLeftOpen, Plug } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { type Page } from '../App'
 import { useWorkspace } from '../tabs/store'
@@ -20,6 +20,7 @@ function activitySectionFor(page: Page): ActivitySection {
     case 'tracked':              return 'tracked'
     case 'workspaces':           return 'workspaces'
     case 'trading-as-git':       return 'trading-as-git'
+    case 'connectors':           return 'connectors'
     case 'settings':             return 'settings'
     case 'dev':                  return 'dev'
     case 'market':               return 'market'
@@ -46,7 +47,7 @@ interface ActivityBarProps {
 type NavItemKey =
   | 'nav.item.inbox' | 'nav.item.tracked' | 'nav.item.chat' | 'nav.item.workspaces'
   | 'nav.item.market' | 'nav.item.news' | 'nav.item.tradingAsGit' | 'nav.item.issue'
-  | 'nav.item.portfolio' | 'nav.item.automation' | 'nav.item.settings' | 'nav.item.dev'
+  | 'nav.item.portfolio' | 'nav.item.connectors' | 'nav.item.automation' | 'nav.item.settings' | 'nav.item.dev'
 
 interface NavLeaf {
   page: Page
@@ -105,8 +106,9 @@ const NAV_SECTIONS: NavSection[] = [
       { page: 'workspaces', labelKey: 'nav.item.workspaces', icon: TerminalSquare, defaultTab: { kind: 'workspace-list', params: {} } },
     ],
   },
-  // Beta — useful trading surfaces whose cross-broker state model and UX are
-  // still settling. Broker connection CRUD lives under Settings → Trading.
+  // Beta — useful product surfaces whose state model and UX are still
+  // settling. Configuration remains in Settings; these entries show the
+  // operational product state rather than editing credentials.
   {
     sectionLabel: 'Beta',
     labelKey: 'nav.section.beta',
@@ -114,6 +116,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { page: 'trading-as-git', labelKey: 'nav.item.tradingAsGit', icon: GitBranch, defaultTab: { kind: 'trading-as-git', params: {} } },
       { page: 'portfolio',      labelKey: 'nav.item.portfolio',    icon: LineChart, defaultTab: { kind: 'portfolio', params: {} } },
+      { page: 'connectors',     labelKey: 'nav.item.connectors',   icon: Plug, defaultTab: { kind: 'connectors', params: {} } },
     ],
   },
   {

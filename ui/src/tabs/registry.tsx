@@ -21,6 +21,7 @@ import { AIProviderPage } from '../pages/AIProviderPage'
 import { TradingPage } from '../pages/TradingPage'
 import { MCPPage } from '../pages/MCPPage'
 import { ConnectorsPage } from '../pages/ConnectorsPage'
+import { ConnectorStatusPage } from '../pages/ConnectorStatusPage'
 import { MarketDataPage } from '../pages/MarketDataPage'
 import { NewsCollectorPage } from '../pages/NewsCollectorPage'
 import { UTADetailPage } from '../pages/UTADetailPage'
@@ -111,6 +112,13 @@ const tradingAsGitModule: ViewModule<'trading-as-git'> = {
   title: () => 'Trading as Git',
   toUrl: () => '/trading-as-git',
   Component: () => <TradingAsGitPage />,
+}
+
+const connectorsModule: ViewModule<'connectors'> = {
+  kind: 'connectors',
+  title: () => 'Connectors',
+  toUrl: () => '/connectors',
+  Component: () => <ConnectorStatusPage />,
 }
 
 const issueModule: ViewModule<'issue'> = {
@@ -322,7 +330,6 @@ const designProjectModule: ViewModule<'design-project'> = {
 
 const devTabTitle: Record<Extract<ViewSpec, { kind: 'dev' }>['params']['tab'], string> = {
   tools: 'Tools',
-  connectors: 'Connectors',
   onboarding: 'Onboarding',
   snapshots: 'Snapshots',
   logs: 'Logs',
@@ -496,6 +503,7 @@ const fileViewerModule: ViewModule<'file-viewer'> = {
 const VIEWS = {
   portfolio: portfolioModule,
   'trading-as-git': tradingAsGitModule,
+  connectors: connectorsModule,
   issue: issueModule,
   'issue-detail': issueDetailModule,
   'tracked-issue-detail': trackedIssueDetailModule,

@@ -44,6 +44,8 @@ export interface ConnectorHealth {
       status: 'disabled' | 'starting' | 'healthy' | 'degraded' | 'stopped'
       detail?: string
       owner?: string
+      lastAttemptAt?: string
+      lastSuccessAt?: string
       lastError?: string
     }>
   }

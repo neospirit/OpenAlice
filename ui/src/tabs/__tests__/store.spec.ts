@@ -18,9 +18,10 @@ function resetStore() {
 beforeEach(resetStore)
 
 describe('Dev URL tabs', () => {
-  it('accepts the Connector beta surface and rejects unknown tabs', () => {
-    expect(isDevTab('connectors')).toBe(true)
+  it('keeps product surfaces out of the internal Dev Panel', () => {
+    expect(isDevTab('connectors')).toBe(false)
     expect(isDevTab('connector')).toBe(false)
+    expect(isDevTab('tools')).toBe(true)
   })
 })
 

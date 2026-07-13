@@ -88,6 +88,13 @@ The owner runs `/link` in the app DM, then OpenAlice stores that Discord user
 ID. Telegram uses private-chat long polling; the owner starts the bot and runs
 `/link`, which stores the matching user and chat IDs.
 
+Saving valid bot credentials does not mean the connector is linked. Settings
+must present the lifecycle explicitly: credentials ready, bot online and
+`awaiting_link`, then linked/healthy. Starting the linking step enables the
+optional Connector Service and that adapter so the external bot can actually
+receive `/link`; owner/chat fields learned by the command are lifecycle output,
+not ordinary operator-entered configuration.
+
 Both adapters reject commands from any account other than the linked owner.
 Use `/status` for adapter health and `/test` for an explicit delivery check.
 
@@ -104,6 +111,9 @@ them through the same health contract and reports one of three phases:
 
 Each probe also records a stable reason code, check timestamp, and latency. A
 failed optional-service probe must never change Alice or Inbox availability.
+An adapter in `awaiting_link` is online and intentionally incomplete, so it does
+not degrade the service; external notification delivery becomes healthy only
+after the owner runs `/link`.
 The contract matrix lives in `src/services/optional-carrier/health.spec.ts`;
 `integrations.spec.ts` applies it to the real UTA and Connector response shapes.
 Guardian/process smoke tests remain responsible for proving that an enabled

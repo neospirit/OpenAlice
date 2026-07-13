@@ -68,7 +68,8 @@ export class DiscordConnectorAdapter implements ConnectorAdapter {
         timer.unref?.()
       }),
     ])
-    this.tracker.healthy(this.ownerUserId)
+    if (this.ownerUserId) this.tracker.healthy(this.ownerUserId)
+    else this.tracker.awaitingLink()
   }
 
   async stop(): Promise<void> {

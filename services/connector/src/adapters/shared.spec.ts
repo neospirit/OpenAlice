@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { InboxNotification } from '@traderalice/connector-protocol'
-import { formatInboxNotification, formatPlainInboxNotification } from './shared.js'
+import { AdapterHealthTracker, formatInboxNotification, formatPlainInboxNotification } from './shared.js'
 
 const notification: InboxNotification = {
   id: 'fixture-1',
@@ -36,5 +36,23 @@ describe('recorded Inbox payload formatting', () => {
       '',
       'https://openalice.example/inbox',
     ].join('\n'))
+  })
+})
+
+describe('connector linking health', () => {
+  it('keeps an online unlinked bot distinct from healthy delivery', () => {
+    const tracker = new AdapterHealthTracker('telegram')
+    tracker.awaitingLink()
+
+    expect(tracker.get()).toMatchObject({
+      id: 'telegram',
+      enabled: true,
+      status: 'awaiting_link',
+      detail: 'Bot is online and waiting for the owner to run /link.',
+    })
+
+    tracker.healthy('owner-1')
+    expect(tracker.get()).toMatchObject({ status: 'healthy', owner: 'owner-1' })
+    expect(tracker.get().detail).toBeUndefined()
   })
 })

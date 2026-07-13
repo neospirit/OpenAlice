@@ -10,6 +10,9 @@ export const connectorFieldDefinitionSchema = z.object({
   kind: connectorFieldKindSchema,
   required: z.boolean().default(false),
   placeholder: z.string().optional(),
+  /** Slash command that owns this value. Settings renders these fields as
+   *  lifecycle output rather than ordinary operator-entered configuration. */
+  learnedBy: z.string().min(1).optional(),
 })
 export type ConnectorFieldDefinition = z.infer<typeof connectorFieldDefinitionSchema>
 
@@ -68,7 +71,7 @@ export type InboxNotification = z.infer<typeof inboxNotificationSchema>
 export const connectorAdapterHealthSchema = z.object({
   id: z.string(),
   enabled: z.boolean(),
-  status: z.enum(['disabled', 'starting', 'healthy', 'degraded', 'stopped']),
+  status: z.enum(['disabled', 'starting', 'awaiting_link', 'healthy', 'degraded', 'stopped']),
   detail: z.string().optional(),
   owner: z.string().optional(),
   lastAttemptAt: z.string().datetime().optional(),

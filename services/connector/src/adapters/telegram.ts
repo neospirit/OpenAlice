@@ -51,7 +51,8 @@ export class TelegramConnectorAdapter implements ConnectorAdapter {
       description,
     })))
     await bot.init()
-    this.tracker.healthy(this.ownerUserId)
+    if (this.ownerUserId && this.chatId) this.tracker.healthy(this.ownerUserId)
+    else this.tracker.awaitingLink()
     void bot.start({ drop_pending_updates: true }).catch((error) => {
       this.tracker.degraded(error)
       console.warn('[connector] Telegram polling stopped:', error instanceof Error ? error.message : error)

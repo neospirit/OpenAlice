@@ -8,7 +8,17 @@ export class AdapterHealthTracker {
   }
 
   healthy(owner?: string): void {
-    this.value = { ...this.value, status: 'healthy', detail: undefined, owner }
+    this.value = { ...this.value, status: 'healthy', detail: undefined, lastError: undefined, owner }
+  }
+
+  awaitingLink(): void {
+    this.value = {
+      ...this.value,
+      status: 'awaiting_link',
+      detail: 'Bot is online and waiting for the owner to run /link.',
+      lastError: undefined,
+      owner: undefined,
+    }
   }
 
   degraded(error: unknown): void {

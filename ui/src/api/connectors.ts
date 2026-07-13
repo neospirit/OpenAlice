@@ -13,6 +13,7 @@ export interface ConnectorDefinition {
     kind: ConnectorFieldKind
     required: boolean
     placeholder?: string
+    learnedBy?: string
   }>
   commands: Array<{ name: string; description: string }>
 }
@@ -41,7 +42,7 @@ export interface ConnectorHealth {
     adapters: Array<{
       id: string
       enabled: boolean
-      status: 'disabled' | 'starting' | 'healthy' | 'degraded' | 'stopped'
+      status: 'disabled' | 'starting' | 'awaiting_link' | 'healthy' | 'degraded' | 'stopped'
       detail?: string
       owner?: string
       lastAttemptAt?: string

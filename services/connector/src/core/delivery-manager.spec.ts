@@ -100,6 +100,32 @@ describe('DeliveryManager connector registry', () => {
     })).resolves.toBeUndefined()
   })
 
+  it('treats an online bot waiting for /link as an intentional setup phase', async () => {
+    const registry = new ConnectorRegistry()
+    registry.register({
+      definition: { id: 'unlinked', label: 'Unlinked', description: 'Waiting for owner.', fields: [], commands: [] },
+      create: () => ({
+        id: 'unlinked',
+        start: async () => undefined,
+        stop: async () => undefined,
+        deliver: async () => { throw new Error('owner not linked') },
+        health: () => ({ id: 'unlinked', enabled: true, status: 'awaiting_link' as const }),
+      }),
+    })
+    const manager = new DeliveryManager({
+      registry,
+      config: { version: 1, adapters: { unlinked: { enabled: true, settings: {} } } },
+      updateAdapterSettings: vi.fn(),
+    })
+
+    await manager.start()
+
+    expect(manager.health()).toMatchObject({
+      status: 'healthy',
+      adapters: [{ id: 'unlinked', status: 'awaiting_link' }],
+    })
+  })
+
   it('records replayable ingress and per-adapter delivery results', async () => {
     const recorder = new MemoryRecorder()
     const adapter = new FakeThirdPartyAdapter()

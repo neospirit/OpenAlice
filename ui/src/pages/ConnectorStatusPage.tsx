@@ -257,6 +257,9 @@ function adapterPresentation(input: {
   if (input.runtimeStatus === 'healthy') {
     return { label: 'Connected', tone: 'healthy', dot: 'bg-green' }
   }
+  if (input.runtimeStatus === 'awaiting_link') {
+    return { label: 'Waiting for /link', tone: 'warning', dot: 'bg-yellow-400' }
+  }
   if (input.runtimeStatus === 'degraded' || input.runtimeStatus === 'stopped') {
     return { label: 'Needs attention', tone: 'danger', dot: 'bg-red' }
   }

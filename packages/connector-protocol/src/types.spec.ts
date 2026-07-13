@@ -16,6 +16,7 @@ const baseNotification = {
 describe('Inbox notification attachments', () => {
   it('accepts a bounded Markdown file payload', () => {
     const content = Buffer.from('# Report\n')
+    const source = Buffer.from('# Report\n', 'utf8')
     expect(inboxNotificationSchema.parse({
       ...baseNotification,
       attachments: [{
@@ -23,6 +24,12 @@ describe('Inbox notification attachments', () => {
         mediaType: 'text/markdown; charset=utf-8',
         sizeBytes: content.byteLength,
         contentSha256: createHash('sha256').update(content).digest('hex'),
+        source: {
+          sizeBytes: source.byteLength,
+          contentSha256: createHash('sha256').update(source).digest('hex'),
+          detectedEncoding: 'UTF-8',
+          detectionConfidence: 100,
+        },
         contentBase64: content.toString('base64'),
       }],
     }).attachments).toHaveLength(1)

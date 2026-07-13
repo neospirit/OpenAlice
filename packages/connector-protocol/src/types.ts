@@ -59,11 +59,21 @@ export type PublicConnectorConfig = z.infer<typeof publicConnectorConfigSchema>
 export const MAX_CONNECTOR_ATTACHMENT_BYTES = 1024 * 1024
 export const MAX_CONNECTOR_ATTACHMENTS = 5
 
+export const connectorAttachmentSourceSchema = z.object({
+  sizeBytes: z.number().int().min(0).max(MAX_CONNECTOR_ATTACHMENT_BYTES),
+  contentSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  detectedEncoding: z.string().min(1).max(64).optional(),
+  detectionConfidence: z.number().min(0).max(100).optional(),
+})
+
 export const connectorAttachmentSchema = z.object({
   filename: z.string().min(1).max(255),
   mediaType: z.string().min(1).max(128),
   sizeBytes: z.number().int().min(0).max(MAX_CONNECTOR_ATTACHMENT_BYTES),
   contentSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  // Source evidence remains distinct when Alice creates an encoding-normalized
+  // delivery copy. The Workspace file itself is never rewritten.
+  source: connectorAttachmentSourceSchema.optional(),
   // One MiB is at most 1,398,104 base64 characters. The small allowance keeps
   // schema evolution from rejecting equivalent padded encodings.
   contentBase64: z.string().max(1_400_000),

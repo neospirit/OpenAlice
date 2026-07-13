@@ -64,6 +64,9 @@ importers:
       ccxt:
         specifier: ^4.5.38
         version: 4.5.38
+      chardet:
+        specifier: 2.2.0
+        version: 2.2.0
       cron-parser:
         specifier: ^5.6.1
         version: 5.6.1
@@ -79,6 +82,9 @@ importers:
       hono:
         specifier: ^4.12.21
         version: 4.12.25
+      iconv-lite:
+        specifier: 0.7.2
+        version: 0.7.2
       longbridge:
         specifier: ^4.0.5
         version: 4.0.5
@@ -2075,6 +2081,9 @@ packages:
   chalk@4.1.2:
     resolution: {integrity: sha512-oKnbhFyRIXpUuez8iBMmyEa4nbj4IOQyuhc/wy9kY7/WVPcwIO9VA668Pu8RkO7+0G76SLROeyw9CpQ061i4mA==}
     engines: {node: '>=10'}
+
+  chardet@2.2.0:
+    resolution: {integrity: sha512-rddelWYNPRrXq6PtNEN2S3f6t9ILzvqaN5pVgi4kqt9jHQaXIial9PznB5iSPVlQSLNaaH22ItWz3EJtQ10+OA==}
 
   check-error@2.1.3:
     resolution: {integrity: sha512-PAJdDJusoxnwm1VwW07VWwUN1sl7smmC3OKggvndJFadxxDRyFJBX/ggnu/KE4kQAB7a3Dp8f/YXC1FlUprWmA==}
@@ -6238,6 +6247,8 @@ snapshots:
     dependencies:
       ansi-styles: 4.3.0
       supports-color: 7.2.0
+
+  chardet@2.2.0: {}
 
   check-error@2.1.3: {}
 

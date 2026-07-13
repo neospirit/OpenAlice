@@ -13,6 +13,7 @@ import {
 import type { InboxEntry, IInboxStore } from '../../core/inbox-store.js'
 import { readConnectorServiceEnabled } from '../../core/connector-config.js'
 import { probeOptionalCarrier } from '../optional-carrier/health.js'
+import { normalizeConnectorMarkdownAttachment } from './text-attachment.js'
 
 export interface ConnectorBridgeHealth {
   enabled: boolean
@@ -221,15 +222,29 @@ export async function projectInboxAttachments(
         throw new Error(`file exceeds ${MAX_CONNECTOR_ATTACHMENT_BYTES} bytes`)
       }
       const content = await readFile(target)
+      const sourceDigest = createHash('sha256').update(content).digest('hex')
+      const delivery = normalizeConnectorMarkdownAttachment(content)
+      if (delivery.warning) warn(`Inbox attachment encoding unchanged (${doc.path}): ${delivery.warning}`)
+      if (delivery.content.byteLength > MAX_CONNECTOR_ATTACHMENT_BYTES) {
+        throw new Error(`encoding-normalized file exceeds ${MAX_CONNECTOR_ATTACHMENT_BYTES} bytes`)
+      }
       const filename = uniqueFilename(basename(doc.path), usedNames)
       projections.push({
         sourcePath: doc.path,
         attachment: {
           filename,
-          mediaType: 'text/markdown; charset=utf-8',
-          sizeBytes: content.byteLength,
-          contentSha256: createHash('sha256').update(content).digest('hex'),
-          contentBase64: content.toString('base64'),
+          mediaType: delivery.mediaType,
+          sizeBytes: delivery.content.byteLength,
+          contentSha256: createHash('sha256').update(delivery.content).digest('hex'),
+          source: {
+            sizeBytes: content.byteLength,
+            contentSha256: sourceDigest,
+            ...(delivery.detectedEncoding ? { detectedEncoding: delivery.detectedEncoding } : {}),
+            ...(delivery.detectionConfidence !== undefined
+              ? { detectionConfidence: delivery.detectionConfidence }
+              : {}),
+          },
+          contentBase64: delivery.content.toString('base64'),
         },
       })
     } catch (error) {

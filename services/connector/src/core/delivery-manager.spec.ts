@@ -143,6 +143,7 @@ describe('DeliveryManager connector registry', () => {
     })
     await manager.start()
     const content = Buffer.from('# Report\n')
+    const source = Buffer.from('# Source report\n')
     const receipt = manager.enqueue({
       id: 'inbox-recorded',
       createdAt: new Date().toISOString(),
@@ -154,6 +155,12 @@ describe('DeliveryManager connector registry', () => {
         mediaType: 'text/markdown; charset=utf-8',
         sizeBytes: content.byteLength,
         contentSha256: createHash('sha256').update(content).digest('hex'),
+        source: {
+          sizeBytes: source.byteLength,
+          contentSha256: createHash('sha256').update(source).digest('hex'),
+          detectedEncoding: 'windows-1252',
+          detectionConfidence: 35,
+        },
         contentBase64: content.toString('base64'),
       }],
     })
@@ -168,7 +175,15 @@ describe('DeliveryManager connector registry', () => {
     expect(recorder.events[0]?.payload).toMatchObject({ notification: { id: 'inbox-recorded' } })
     expect(adapter.delivered[0]?.attachments?.[0]?.contentBase64).toBe(content.toString('base64'))
     expect(recorder.events[0]?.payload).toMatchObject({
-      attachmentEvidence: [{ filename: 'report.md', sizeBytes: content.byteLength }],
+      attachmentEvidence: [{
+        filename: 'report.md',
+        sizeBytes: content.byteLength,
+        source: {
+          sizeBytes: source.byteLength,
+          detectedEncoding: 'windows-1252',
+        },
+        normalized: true,
+      }],
     })
     expect(JSON.stringify(recorder.events)).not.toContain(content.toString('base64'))
   })

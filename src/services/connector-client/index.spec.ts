@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -80,10 +81,36 @@ describe('Inbox Connector bridge', () => {
     expect(notification?.attachments?.[0]).toMatchObject({
       filename: 'close.md',
       mediaType: 'text/markdown; charset=utf-8',
-      sizeBytes: Buffer.byteLength('# Close scan\n'),
+      sizeBytes: Buffer.byteLength('# Close scan\n') + 3,
+      source: {
+        sizeBytes: Buffer.byteLength('# Close scan\n'),
+        contentSha256: createHash('sha256').update('# Close scan\n').digest('hex'),
+        detectedEncoding: 'UTF-8',
+        detectionConfidence: 100,
+      },
     })
-    expect(Buffer.from(notification!.attachments![0]!.contentBase64, 'base64').toString('utf8'))
+    expect(Buffer.from(notification!.attachments![0]!.contentBase64, 'base64').subarray(3).toString('utf8'))
       .toBe('# Close scan\n')
+  })
+
+  it('warns and preserves source bytes when encoding cannot be normalized safely', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'openalice-connector-ambiguous-'))
+    tempDirs.push(root)
+    const source = Buffer.from([0x00, 0x01, 0x02, 0x03, 0x80, 0x81, 0x82, 0x83])
+    await writeFile(join(root, 'ambiguous.md'), source)
+    const warn = vi.fn()
+
+    const attachments = await projectInboxAttachments({
+      id: 'entry-ambiguous',
+      ts: Date.now(),
+      workspaceId: 'ws-1',
+      docs: [{ path: 'ambiguous.md' }],
+    }, () => ({ dir: root }), warn)
+
+    expect(attachments).toHaveLength(1)
+    expect(Buffer.from(attachments[0]!.attachment.contentBase64, 'base64')).toEqual(source)
+    expect(attachments[0]!.attachment.mediaType).toBe('text/markdown')
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('encoding unchanged'))
   })
 
   it('refuses to attach a Markdown symlink that escapes the Workspace', async () => {

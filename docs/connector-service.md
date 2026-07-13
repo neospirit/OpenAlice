@@ -24,14 +24,20 @@ categories.
   slash-command control plane; ordinary DM text is not ingested.
 - Each adapter serves one owner account/private chat. Group and channel
   broadcasting are out of scope.
-- Inbox `docs` that are Markdown are sent as original file attachments, not
-  flattened into the message body. Alice reads the live Workspace file before
-  crossing the process boundary; Connector Service never reaches into a
-  Workspace itself. One notification carries at most five files of at most
-  1 MiB each. Missing, oversized, non-Markdown, or path-escaping files remain
-  visible as Inbox/report paths and never block the text notification. A
-  skipped eligible attachment is logged and leaves bridge health degraded so
-  partial delivery is visible to operators.
+- Inbox `docs` that are Markdown are sent as file attachments, not flattened
+  into the message body. Alice reads the live Workspace file before crossing
+  the process boundary; Connector Service never reaches into a Workspace
+  itself. The Workspace artifact is never rewritten or given an agent-facing
+  encoding requirement. At the externalization boundary Alice detects the
+  source encoding and creates a UTF-8-with-BOM delivery copy so locale-sensitive
+  mobile viewers do not guess GBK, Big5, Shift-JIS, or a Western legacy charset.
+  Source and delivery byte evidence remain separate. One notification carries
+  at most five files of at most 1 MiB each. Missing, oversized, non-Markdown,
+  or path-escaping files remain visible as Inbox/report paths and never block
+  the text notification. When an encoding cannot be identified safely, Alice
+  sends the original bytes instead of guessing. A skipped or ambiguous
+  eligible attachment is logged and leaves bridge health degraded so partial
+  or unnormalized delivery is visible to operators.
 - Session provenance is rendered as a visible `@resumeId` signature. The
   runtime label may accompany it (`pi · @resume-…`) but must never replace it.
 
@@ -175,8 +181,9 @@ Connector Service writes a bounded, private JSONL journal to
 `data/logs/connector-io.jsonl` (one rotated generation at `.1`). It records:
 
 - normalized Inbox notification text at service ingress;
-- attachment evidence (`filename`, media type, byte size, and SHA-256) without
-  repeating base64 file bodies into every ingress/adapter journal event;
+- delivery attachment evidence (`filename`, media type, byte size, and
+  SHA-256), plus source size, digest, and detected encoding when available,
+  without repeating base64 file bodies into every ingress/adapter journal event;
 - per-adapter delivery attempt, success, or failure tied to one correlation ID;
 - inbound slash-command name and pseudonymized user/chat IDs;
 - command replies and command failures.

@@ -198,9 +198,9 @@ export class DeliveryManager {
   }
 }
 
-/** The replay journal proves which file revision was offered without copying
- * base64 file bodies into connector-io.jsonl once per adapter and stage. The
- * live adapter still receives the complete notification. */
+/** The replay journal proves which source file and normalized delivery bytes
+ * were offered without copying base64 bodies into connector-io.jsonl once per
+ * adapter and stage. The live adapter still receives the complete notification. */
 function journalNotificationPayload(notification: InboxNotification): Record<string, unknown> {
   const { attachments, ...safeNotification } = notification
   return {
@@ -211,6 +211,10 @@ function journalNotificationPayload(notification: InboxNotification): Record<str
         mediaType: attachment.mediaType,
         sizeBytes: attachment.sizeBytes,
         contentSha256: attachment.contentSha256,
+        ...(attachment.source ? {
+          source: attachment.source,
+          normalized: attachment.source.contentSha256 !== attachment.contentSha256,
+        } : {}),
       })),
     } : {}),
   }

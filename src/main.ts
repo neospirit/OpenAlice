@@ -292,7 +292,6 @@ async function main() {
   // ==================== Inbox store ====================
 
   const inboxStore = createInboxStore()
-  startInboxConnectorBridge(inboxStore)
 
   // ==================== Entity store (durable cross-workspace tracked-index) ====================
 
@@ -305,6 +304,7 @@ async function main() {
   // `ref.current` is null until the plugin boots; an early cron fire is a loud
   // skip (see cron listener). Created here so cron dispatch can hold it.
   const workspaceServiceRef = createWorkspaceServiceRef()
+  startInboxConnectorBridge(inboxStore, () => workspaceServiceRef.current)
 
   // Snapshot scheduler lives in UTA after Step 6 — Alice no longer
   // drives the periodic equity-curve writes. The UTA service starts

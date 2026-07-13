@@ -1,4 +1,4 @@
-import { Bot } from 'grammy'
+import { Bot, InputFile } from 'grammy'
 import { autoRetry } from '@grammyjs/auto-retry'
 import type {
   ConnectorAdapterConfig,
@@ -11,7 +11,11 @@ import type {
   ConnectorAdapterContext,
   ConnectorAdapterRegistration,
 } from '../core/adapter.js'
-import { AdapterHealthTracker, formatPlainInboxNotification } from './shared.js'
+import {
+  AdapterHealthTracker,
+  decodeInboxAttachments,
+  formatPlainInboxNotification,
+} from './shared.js'
 
 export class TelegramConnectorAdapter implements ConnectorAdapter {
   readonly id = 'telegram'
@@ -71,6 +75,12 @@ export class TelegramConnectorAdapter implements ConnectorAdapter {
     this.tracker.attempt()
     try {
       await this.bot.api.sendMessage(this.chatId, formatPlainInboxNotification(notification))
+      for (const attachment of decodeInboxAttachments(notification)) {
+        await this.bot.api.sendDocument(
+          this.chatId,
+          new InputFile(attachment.content, attachment.filename),
+        )
+      }
       this.tracker.success(this.ownerUserId)
     } catch (error) {
       this.tracker.degraded(error)

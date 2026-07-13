@@ -10,7 +10,11 @@ import type {
   ConnectorAdapterContext,
   ConnectorAdapterRegistration,
 } from '../core/adapter.js'
-import { AdapterHealthTracker, formatInboxNotification } from './shared.js'
+import {
+  AdapterHealthTracker,
+  decodeInboxAttachments,
+  formatInboxNotification,
+} from './shared.js'
 
 export class DiscordConnectorAdapter implements ConnectorAdapter {
   readonly id = 'discord'
@@ -84,7 +88,16 @@ export class DiscordConnectorAdapter implements ConnectorAdapter {
     this.tracker.attempt()
     try {
       const user = await this.client.users.fetch(this.ownerUserId)
-      await user.send(formatInboxNotification(notification))
+      const attachments = decodeInboxAttachments(notification)
+      await user.send({
+        content: formatInboxNotification(notification),
+        ...(attachments.length > 0 ? {
+          files: attachments.map((attachment) => ({
+            attachment: attachment.content,
+            name: attachment.filename,
+          })),
+        } : {}),
+      })
       this.tracker.success(this.ownerUserId)
     } catch (error) {
       this.tracker.degraded(error)

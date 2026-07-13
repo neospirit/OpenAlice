@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import type {
   ConnectorAdapterConfig,
@@ -141,12 +142,20 @@ describe('DeliveryManager connector registry', () => {
       updateAdapterSettings: vi.fn(),
     })
     await manager.start()
+    const content = Buffer.from('# Report\n')
     const receipt = manager.enqueue({
       id: 'inbox-recorded',
       createdAt: new Date().toISOString(),
       workspaceId: 'ws-1',
       title: 'Replay me',
       body: 'Recorded payload',
+      attachments: [{
+        filename: 'report.md',
+        mediaType: 'text/markdown; charset=utf-8',
+        sizeBytes: content.byteLength,
+        contentSha256: createHash('sha256').update(content).digest('hex'),
+        contentBase64: content.toString('base64'),
+      }],
     })
 
     await vi.waitFor(() => expect(adapter.delivered).toHaveLength(1))
@@ -157,6 +166,11 @@ describe('DeliveryManager connector registry', () => {
     ])
     expect(recorder.events.every((event) => event.correlationId === receipt.deliveryId)).toBe(true)
     expect(recorder.events[0]?.payload).toMatchObject({ notification: { id: 'inbox-recorded' } })
+    expect(adapter.delivered[0]?.attachments?.[0]?.contentBase64).toBe(content.toString('base64'))
+    expect(recorder.events[0]?.payload).toMatchObject({
+      attachmentEvidence: [{ filename: 'report.md', sizeBytes: content.byteLength }],
+    })
+    expect(JSON.stringify(recorder.events)).not.toContain(content.toString('base64'))
   })
 
   it('does not let a broken recorder block external delivery', async () => {

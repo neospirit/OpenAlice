@@ -1,6 +1,12 @@
+import { createHash } from 'node:crypto'
+import { readFile, realpath, stat } from 'node:fs/promises'
+import { basename, extname, isAbsolute, normalize, resolve, sep } from 'node:path'
 import {
   ConnectorClient,
+  MAX_CONNECTOR_ATTACHMENT_BYTES,
+  MAX_CONNECTOR_ATTACHMENTS,
   connectorServiceHealthSchema,
+  type ConnectorAttachment,
   type ConnectorServiceHealth,
   type InboxNotification,
 } from '@traderalice/connector-protocol'
@@ -30,6 +36,16 @@ export interface InboxConnectorBridgeDeps {
   isEnabled(): Promise<boolean>
   push(notification: InboxNotification): Promise<void>
   warn(message: string): void
+  resolveWorkspace?(id: string): { dir: string } | null
+}
+
+interface WorkspaceServiceLike {
+  registry: { get(id: string): { dir: string } | undefined }
+}
+
+export interface InboxAttachmentProjection {
+  sourcePath: string
+  attachment: ConnectorAttachment
 }
 
 export function resolveConnectorUrl(): string {
@@ -37,7 +53,10 @@ export function resolveConnectorUrl(): string {
     || `http://127.0.0.1:${process.env['OPENALICE_CONNECTOR_PORT'] ?? '47334'}`
 }
 
-export function startInboxConnectorBridge(inboxStore: IInboxStore): () => void {
+export function startInboxConnectorBridge(
+  inboxStore: IInboxStore,
+  getWorkspaceService?: () => WorkspaceServiceLike | null,
+): () => void {
   const client = new ConnectorClient(resolveConnectorUrl())
   return attachInboxConnectorBridge(inboxStore, {
     isEnabled: readConnectorServiceEnabled,
@@ -45,6 +64,12 @@ export function startInboxConnectorBridge(inboxStore: IInboxStore): () => void {
       await client.pushInbox(notification, AbortSignal.timeout(5_000))
     },
     warn: (message) => console.warn('[connector] Inbox notification delivery unavailable:', message),
+    ...(getWorkspaceService ? {
+      resolveWorkspace: (id) => {
+        const workspace = getWorkspaceService()?.registry.get(id)
+        return workspace ? { dir: workspace.dir } : null
+      },
+    } : {}),
   })
 }
 
@@ -104,12 +129,23 @@ async function deliverEntry(entry: InboxEntry, deps: InboxConnectorBridgeDeps): 
   if (!await deps.isEnabled()) return
   state.enabled = true
   state.lastAttemptAt = new Date().toISOString()
-  const notification = toNotification(entry)
+  const attachmentWarnings: string[] = []
+  const warnAttachment = (warning: string) => {
+    attachmentWarnings.push(warning)
+    deps.warn(warning)
+  }
+  const attachments = await projectInboxAttachments(entry, deps.resolveWorkspace, warnAttachment)
+  const notification = toNotification(entry, attachments)
   try {
     await deps.push(notification)
-    state.status = 'healthy'
     state.lastSuccessAt = new Date().toISOString()
-    delete state.lastError
+    if (attachmentWarnings.length > 0) {
+      state.status = 'degraded'
+      state.lastError = attachmentWarnings.join('; ')
+    } else {
+      state.status = 'healthy'
+      delete state.lastError
+    }
   } catch (error) {
     state.status = 'degraded'
     state.lastError = message(error)
@@ -117,7 +153,10 @@ async function deliverEntry(entry: InboxEntry, deps: InboxConnectorBridgeDeps): 
   }
 }
 
-export function toNotification(entry: InboxEntry): InboxNotification {
+export function toNotification(
+  entry: InboxEntry,
+  attachments: readonly InboxAttachmentProjection[] = [],
+): InboxNotification {
   const docs = entry.docs?.map((doc) => doc.path) ?? []
   const body = [
     entry.comments?.trim(),
@@ -131,6 +170,7 @@ export function toNotification(entry: InboxEntry): InboxNotification {
     ...(entry.workspaceLabel ? { workspaceLabel: entry.workspaceLabel } : {}),
     title: `Inbox update from ${entry.workspaceLabel ?? entry.workspaceId}`,
     body,
+    ...(attachments.length > 0 ? { attachments: attachments.map(({ attachment }) => attachment) } : {}),
     ...(baseUrl ? { href: `${baseUrl}/inbox` } : {}),
     ...(entry.origin?.resumeId || entry.origin?.agent ? {
       provenance: {
@@ -139,6 +179,94 @@ export function toNotification(entry: InboxEntry): InboxNotification {
       },
     } : {}),
   }
+}
+
+/** Project Inbox's live Markdown document pointers into bounded, verified file
+ * bytes before crossing the process boundary. Unsupported or unavailable files
+ * remain listed in the text notification and never block the durable Inbox
+ * append or the remaining external message. */
+export async function projectInboxAttachments(
+  entry: InboxEntry,
+  resolveWorkspace: InboxConnectorBridgeDeps['resolveWorkspace'],
+  warn: (message: string) => void = () => undefined,
+): Promise<InboxAttachmentProjection[]> {
+  const markdownDocs = (entry.docs ?? []).filter((doc) => {
+    const extension = extname(doc.path).toLowerCase()
+    return extension === '.md' || extension === '.markdown'
+  })
+  if (markdownDocs.length === 0 || !resolveWorkspace) return []
+
+  const workspace = resolveWorkspace(entry.workspaceId)
+  if (!workspace) {
+    warn(`Workspace unavailable for Inbox attachments: ${entry.workspaceId}`)
+    return []
+  }
+
+  let workspaceRoot: string
+  try {
+    workspaceRoot = await realpath(workspace.dir)
+  } catch (error) {
+    warn(`Workspace path unavailable for Inbox attachments: ${message(error)}`)
+    return []
+  }
+
+  const projections: InboxAttachmentProjection[] = []
+  const usedNames = new Set<string>()
+  for (const doc of markdownDocs.slice(0, MAX_CONNECTOR_ATTACHMENTS)) {
+    try {
+      const target = await resolveSafeWorkspaceFile(workspaceRoot, doc.path)
+      const info = await stat(target)
+      if (!info.isFile()) throw new Error('not a regular file')
+      if (info.size > MAX_CONNECTOR_ATTACHMENT_BYTES) {
+        throw new Error(`file exceeds ${MAX_CONNECTOR_ATTACHMENT_BYTES} bytes`)
+      }
+      const content = await readFile(target)
+      const filename = uniqueFilename(basename(doc.path), usedNames)
+      projections.push({
+        sourcePath: doc.path,
+        attachment: {
+          filename,
+          mediaType: 'text/markdown; charset=utf-8',
+          sizeBytes: content.byteLength,
+          contentSha256: createHash('sha256').update(content).digest('hex'),
+          contentBase64: content.toString('base64'),
+        },
+      })
+    } catch (error) {
+      warn(`Inbox attachment skipped (${doc.path}): ${message(error)}`)
+    }
+  }
+  if (markdownDocs.length > MAX_CONNECTOR_ATTACHMENTS) {
+    warn(`Inbox attachment limit reached; skipped ${markdownDocs.length - MAX_CONNECTOR_ATTACHMENTS} file(s)`)
+  }
+  return projections
+}
+
+async function resolveSafeWorkspaceFile(workspaceRoot: string, relativePath: string): Promise<string> {
+  const clean = normalize(relativePath)
+  if (!clean || clean === '.' || isAbsolute(clean) || clean === '..' || clean.startsWith(`..${sep}`)) {
+    throw new Error('path escapes Workspace')
+  }
+  const target = await realpath(resolve(workspaceRoot, clean))
+  if (target !== workspaceRoot && !target.startsWith(`${workspaceRoot}${sep}`)) {
+    throw new Error('symlink target escapes Workspace')
+  }
+  return target
+}
+
+function uniqueFilename(input: string, used: Set<string>): string {
+  const candidate = input.trim() || 'report.md'
+  if (!used.has(candidate)) {
+    used.add(candidate)
+    return candidate
+  }
+  const extension = extname(candidate)
+  const stem = candidate.slice(0, candidate.length - extension.length)
+  let index = 2
+  while (used.has(`${stem}-${index}${extension}`)) index += 1
+  const unique = `${stem}-${index}${extension}`
+  used.add(unique)
+  return unique
 }
 
 function message(error: unknown): string {

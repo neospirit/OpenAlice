@@ -171,6 +171,8 @@ function Detail({ entry, onDelete }: { entry: InboxEntry; onDelete: () => void }
   // (there's no per-run detail surface to open).
   const origin = entry.origin
   const issueId = origin?.issueId
+  const senderSignature = origin?.resumeId ? `@${origin.resumeId}` : null
+  const senderLabel = [origin?.agent, senderSignature].filter(Boolean).join(' · ') || null
   // Interactive provenance — the human-attended session this push came from
   // (server-stamped from AQ_SESSION_ID, validated against the session registry).
   // Navigable: opens/focuses that exact session tab.
@@ -293,11 +295,11 @@ function Detail({ entry, onDelete }: { entry: InboxEntry; onDelete: () => void }
             type="button"
             onClick={openSession}
             disabled={!wsAlive || !sessionRecord}
-            title={`From session ${sessionId}`}
+            title={senderLabel ? `From ${senderLabel}` : `From session ${sessionId}`}
             className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-text-muted/80 hover:text-accent hover:bg-accent/10 transition-colors disabled:opacity-50 disabled:hover:text-text-muted/80 disabled:hover:bg-transparent disabled:cursor-default"
           >
             <Terminal size={12} strokeWidth={1.75} className="shrink-0" />
-            <span className="truncate max-w-[220px]">from session{origin?.agent ? ` · ${origin.agent}` : ''}</span>
+            <span className="truncate max-w-[360px]">from {senderLabel ?? 'session'}</span>
           </button>
         ) : hasHeadlessOrigin ? (
           <button
@@ -305,10 +307,10 @@ function Detail({ entry, onDelete }: { entry: InboxEntry; onDelete: () => void }
             onClick={() => void continueOrigin()}
             disabled={!wsAlive || continuing}
             className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-text-muted/80 hover:text-accent hover:bg-accent/10 transition-colors disabled:opacity-50 disabled:hover:text-text-muted/80 disabled:hover:bg-transparent disabled:cursor-default"
-            title={`From headless run ${origin.runId}`}
+            title={senderLabel ? `From ${senderLabel}` : `From headless run ${origin.runId}`}
           >
             <Bot size={12} strokeWidth={1.75} className="shrink-0" />
-            <span>from run{origin.agent ? ` · ${origin.agent}` : ''}</span>
+            <span className="truncate max-w-[360px]">from {senderLabel ?? 'run'}</span>
           </button>
         ) : null}
 
@@ -406,8 +408,9 @@ function Detail({ entry, onDelete }: { entry: InboxEntry; onDelete: () => void }
         )}
       </div>
 
-      <div className="mt-4 text-[11px] text-text-muted/40 font-mono">
-        workspace: {entry.workspaceId}
+      <div className="mt-4 space-y-0.5 text-[11px] text-text-muted/40 font-mono">
+        <div>workspace: {entry.workspaceId}</div>
+        {senderSignature && <div>sender: {senderSignature}</div>}
       </div>
     </div>
   )

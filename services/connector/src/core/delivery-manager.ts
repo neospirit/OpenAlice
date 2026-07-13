@@ -59,7 +59,7 @@ export class DeliveryManager {
         correlationId: deliveryId,
         direction: 'inbound',
         stage: 'notification.received',
-        payload: { notification },
+        payload: journalNotificationPayload(notification),
       }).then(() => this.deliver(notification, deliveryId))
     })
     return { accepted: true, deliveryId }
@@ -72,7 +72,7 @@ export class DeliveryManager {
         direction: 'outbound',
         stage: 'delivery.attempted',
         connectorId: adapter.id,
-        payload: { notification },
+        payload: journalNotificationPayload(notification),
       })
       try {
         await adapter.deliver(notification)
@@ -168,7 +168,7 @@ export class DeliveryManager {
       direction: 'outbound',
       stage: 'delivery.attempted',
       connectorId: adapter.id,
-      payload: { notification },
+      payload: journalNotificationPayload(notification),
     })
     try {
       await adapter.deliver(notification)
@@ -195,5 +195,23 @@ export class DeliveryManager {
     await this.recorder.record(event).catch((error) => {
       console.warn('[connector] I/O delivery event could not be recorded:', error instanceof Error ? error.message : error)
     })
+  }
+}
+
+/** The replay journal proves which file revision was offered without copying
+ * base64 file bodies into connector-io.jsonl once per adapter and stage. The
+ * live adapter still receives the complete notification. */
+function journalNotificationPayload(notification: InboxNotification): Record<string, unknown> {
+  const { attachments, ...safeNotification } = notification
+  return {
+    notification: safeNotification,
+    ...(attachments && attachments.length > 0 ? {
+      attachmentEvidence: attachments.map((attachment) => ({
+        filename: attachment.filename,
+        mediaType: attachment.mediaType,
+        sizeBytes: attachment.sizeBytes,
+        contentSha256: attachment.contentSha256,
+      })),
+    } : {}),
   }
 }

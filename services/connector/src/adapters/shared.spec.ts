@@ -1,6 +1,12 @@
+import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import type { InboxNotification } from '@traderalice/connector-protocol'
-import { AdapterHealthTracker, formatInboxNotification, formatPlainInboxNotification } from './shared.js'
+import {
+  AdapterHealthTracker,
+  decodeInboxAttachments,
+  formatInboxNotification,
+  formatPlainInboxNotification,
+} from './shared.js'
 
 const notification: InboxNotification = {
   id: 'fixture-1',
@@ -18,7 +24,7 @@ describe('recorded Inbox payload formatting', () => {
     expect(formatInboxNotification(notification)).toBe([
       '**Close \\[scan\\]**',
       'Workspace: Research \\*desk\\*',
-      'From: resume\\-calm\\-river\\-12ab',
+      'From: @resume\\-calm\\-river\\-12ab',
       '',
       'Three findings.',
       '',
@@ -30,12 +36,51 @@ describe('recorded Inbox payload formatting', () => {
     expect(formatPlainInboxNotification(notification)).toBe([
       'Close [scan]',
       'Workspace: Research *desk*',
-      'From: resume-calm-river-12ab',
+      'From: @resume-calm-river-12ab',
       '',
       'Three findings.',
       '',
       'https://openalice.example/inbox',
     ].join('\n'))
+  })
+
+  it('keeps the runtime label and visible Session signature together', () => {
+    expect(formatPlainInboxNotification({
+      ...notification,
+      provenance: { actorLabel: 'pi', resumeId: 'resume-calm-river-12ab' },
+    })).toContain('From: pi · @resume-calm-river-12ab')
+  })
+
+  it('decodes and verifies Markdown attachments', () => {
+    const content = Buffer.from('# Close scan\n')
+    const decoded = decodeInboxAttachments({
+      ...notification,
+      attachments: [{
+        filename: 'close.md',
+        mediaType: 'text/markdown; charset=utf-8',
+        sizeBytes: content.byteLength,
+        contentSha256: createHash('sha256').update(content).digest('hex'),
+        contentBase64: content.toString('base64'),
+      }],
+    })
+    expect(decoded).toEqual([{
+      filename: 'close.md',
+      mediaType: 'text/markdown; charset=utf-8',
+      content,
+    }])
+  })
+
+  it('rejects attachment bytes that do not match their digest', () => {
+    expect(() => decodeInboxAttachments({
+      ...notification,
+      attachments: [{
+        filename: 'close.md',
+        mediaType: 'text/markdown; charset=utf-8',
+        sizeBytes: 1,
+        contentSha256: '0'.repeat(64),
+        contentBase64: Buffer.from('x').toString('base64'),
+      }],
+    })).toThrow('digest mismatch')
   })
 })
 

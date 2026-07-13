@@ -9,7 +9,7 @@
     "dev": "tsx watch src/main.ts",
     "start": "node dist/connector.cjs",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --config ../../vitest.config.ts --project node services/connector"
+    "test": "vitest run --root ../.. --config vitest.config.ts --project node services/connector/src"
   },
   "dependencies": {
     "@grammyjs/auto-retry": "^2.0.2",

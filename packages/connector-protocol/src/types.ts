@@ -53,6 +53,23 @@ export const publicConnectorConfigSchema = z.object({
 })
 export type PublicConnectorConfig = z.infer<typeof publicConnectorConfigSchema>
 
+/** Keep inline delivery bounded below both Discord's ordinary upload limit and
+ * Telegram's document limit. Alice reads only the small Markdown reports that
+ * Inbox already exposes; Connector Service never reaches back into a Workspace. */
+export const MAX_CONNECTOR_ATTACHMENT_BYTES = 1024 * 1024
+export const MAX_CONNECTOR_ATTACHMENTS = 5
+
+export const connectorAttachmentSchema = z.object({
+  filename: z.string().min(1).max(255),
+  mediaType: z.string().min(1).max(128),
+  sizeBytes: z.number().int().min(0).max(MAX_CONNECTOR_ATTACHMENT_BYTES),
+  contentSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  // One MiB is at most 1,398,104 base64 characters. The small allowance keeps
+  // schema evolution from rejecting equivalent padded encodings.
+  contentBase64: z.string().max(1_400_000),
+})
+export type ConnectorAttachment = z.infer<typeof connectorAttachmentSchema>
+
 export const inboxNotificationSchema = z.object({
   id: z.string().min(1),
   createdAt: z.string().datetime(),
@@ -60,6 +77,7 @@ export const inboxNotificationSchema = z.object({
   workspaceLabel: z.string().optional(),
   title: z.string().min(1),
   body: z.string().default(''),
+  attachments: z.array(connectorAttachmentSchema).max(MAX_CONNECTOR_ATTACHMENTS).optional(),
   href: z.string().optional(),
   provenance: z.object({
     resumeId: z.string().optional(),

@@ -13,6 +13,9 @@ truth. Telegram and Discord are the first adapters, not hard-coded product
 categories.
 
 - Local Inbox append completes before any external request begins.
+- Agent-originated pushes enter through the Workspace CLI and inherit the
+  CLI's server-validated Session origin; Connector delivery has no MCP identity
+  dependency.
 - A failed connector never changes `inbox_push` success and never marks an
   Inbox item read.
 - The service is optional in every trading mode, including lite.
@@ -21,12 +24,22 @@ categories.
   slash-command control plane; ordinary DM text is not ingested.
 - Each adapter serves one owner account/private chat. Group and channel
   broadcasting are out of scope.
+- Inbox `docs` that are Markdown are sent as original file attachments, not
+  flattened into the message body. Alice reads the live Workspace file before
+  crossing the process boundary; Connector Service never reaches into a
+  Workspace itself. One notification carries at most five files of at most
+  1 MiB each. Missing, oversized, non-Markdown, or path-escaping files remain
+  visible as Inbox/report paths and never block the text notification. A
+  skipped eligible attachment is logged and leaves bridge health degraded so
+  partial delivery is visible to operators.
+- Session provenance is rendered as a visible `@resumeId` signature. The
+  runtime label may accompany it (`pi · @resume-…`) but must never replace it.
 
 ## Topology
 
 ```text
 Workspace agent
-  -> inbox_push
+  -> alice-workspace inbox push (CLI)
   -> InboxStore durable JSONL append
   -> non-blocking Alice bridge
   -> Connector Service on loopback
@@ -161,7 +174,9 @@ two explicit layers.
 Connector Service writes a bounded, private JSONL journal to
 `data/logs/connector-io.jsonl` (one rotated generation at `.1`). It records:
 
-- complete normalized Inbox notifications at service ingress;
+- normalized Inbox notification text at service ingress;
+- attachment evidence (`filename`, media type, byte size, and SHA-256) without
+  repeating base64 file bodies into every ingress/adapter journal event;
 - per-adapter delivery attempt, success, or failure tied to one correlation ID;
 - inbound slash-command name and pseudonymized user/chat IDs;
 - command replies and command failures.
@@ -170,7 +185,9 @@ Bot tokens are never journaled. Platform user and chat IDs are stable SHA-256
 pseudonyms so authorization/equality cases remain replayable without retaining
 raw external identifiers. Notification text is retained because it is the
 payload under test; the journal is mode `0600`, bounded to 5 MiB, and remains
-local to the OpenAlice data home.
+local to the OpenAlice data home. Adapter tests own byte-level attachment
+decoding/upload contracts; replay owns the durable text and attachment-evidence
+contract without growing the journal into a report archive.
 
 `services/connector/test-fixtures/io-smoke.jsonl` is a safe fixture. The replay
 harness consumes only `notification.received` events and runs them through a

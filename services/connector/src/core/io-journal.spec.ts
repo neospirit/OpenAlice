@@ -1,4 +1,5 @@
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { access, mkdtemp, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -27,6 +28,13 @@ describe('ConnectorIOJournal', () => {
 
     expect(await readFile(`${path}.1`, 'utf8')).toContain('"correlationId":"second"')
     expect(await readFile(path, 'utf8')).toContain('"correlationId":"third"')
-    expect((await stat(path)).mode & 0o777).toBe(0o600)
+    if (process.platform === 'win32') {
+      // Windows does not expose POSIX permission bits: a file created with
+      // mode 0600 is reported as 0666. Keep the rotation/content contract
+      // above and prove the journal remains usable on the native filesystem.
+      await expect(access(path, constants.R_OK | constants.W_OK)).resolves.toBeUndefined()
+    } else {
+      expect((await stat(path)).mode & 0o777).toBe(0o600)
+    }
   })
 })

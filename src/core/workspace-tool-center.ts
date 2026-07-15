@@ -36,6 +36,11 @@ import type { IssuesSnapshot, IssueDetail, WikilinkIssueRef } from '../workspace
 import type { WorkspaceSessionDirectory } from '../workspaces/session-directory.js'
 import type { HeadlessStructuredOutput } from '../workspaces/headless-output.js'
 import type { HeadlessInquirySubject, HeadlessTaskStatus } from '../workspaces/headless-task-registry.js'
+import type {
+  ApplyTemplateUpgradeInput,
+  TemplateUpgradePlan,
+  TemplateUpgradeResult,
+} from '../workspaces/template-upgrade.js'
 
 export type WorkspaceConversationTarget =
   | { kind: 'resume'; resumeId: string }
@@ -131,6 +136,12 @@ export interface WorkspaceConversationControl {
   read(taskId: string): Promise<WorkspaceConversationTask | null>
 }
 
+/** Launcher-owned reconciliation for the caller's current Workspace. */
+export interface WorkspaceTemplateUpgradeControl {
+  plan(workspaceId: string): Promise<TemplateUpgradePlan>
+  apply(workspaceId: string, input: ApplyTemplateUpgradeInput): Promise<TemplateUpgradeResult>
+}
+
 // ==================== Context handed to factories ====================
 
 export interface WorkspaceToolContext {
@@ -193,6 +204,8 @@ export interface WorkspaceToolContext {
     detail(wsId: string, id: string): Promise<IssueDetail | null>
     resolveByName(name: string): Promise<WikilinkIssueRef[]>
   }
+  /** Safe current-Workspace template preview/apply surface. */
+  templateUpgrades?: WorkspaceTemplateUpgradeControl
 }
 
 // ==================== Factory shape ====================

@@ -21,6 +21,7 @@ Choose the verb from the intent, not from whichever object you happen to have:
 | Ask an Issue's creator or selected historical run | `issue ask` |
 | Discuss this Workspace's own Issue; notify its fixed owner | `issue comment` |
 | Ask by a known product Session/Workspace only when no business object exists | `conversation ask` |
+| Bring this desk's managed instructions and skills up to date | `template upgrade` |
 
 `issue comment` is the durable conversation entry for this Workspace's own
 Issue. If the Issue has an exact `@resumeId` assignee, a comment from somebody
@@ -186,3 +187,36 @@ one accountable product Session. Commit intentional Issue-file changes as a
 focused Git change; Activity remains an audit fallback, while Git is the exact
 rollback history. Issue/Inbox CLI actions are signed automatically. End standalone reports with `Signed-by: @resumeId`
 (copy it from `signature show`) so another Agent can return to the author.
+
+**Upgrade this Workspace's managed template assets** — preview first, then
+apply explicitly:
+
+```bash
+alice-workspace template upgrade
+alice-workspace template upgrade --apply
+alice-workspace template upgrade --id <workspaceId>       # manage a paused peer
+alice-workspace template upgrade --id <workspaceId> --apply
+```
+
+The default call is read-only. It compares this Workspace with the current
+template and lists ready changes, protected local customizations, blockers, and
+conflicts. `--apply` re-plans and runs the launcher's transactional upgrade;
+there is no HTTP endpoint or plan digest to copy by hand. Omit `--id` for this
+Workspace, or pass a peer Workspace id when interactively managing another
+desk. Applying to the current Workspace from one of its own live Sessions will
+correctly remain blocked; pause it or use a separate manager Workspace. A
+headless run may preview a peer but cannot apply a cross-Workspace upgrade.
+
+If a managed file changed both locally and in the template, resolve every
+conflict explicitly before applying:
+
+```bash
+alice-workspace template upgrade --mode detailed
+alice-workspace template upgrade --id <workspaceId> --apply \
+  --keep-workspace AGENTS.md \
+  --use-template .agents/skills/alice-workspace/SKILL.md
+```
+
+Both resolution flags are repeatable. Upgrade never adopts research, reports,
+Issues, credentials, runtime state, or other user files. It also refuses to run
+while Sessions/headless work are active or unrelated changes are staged.

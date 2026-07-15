@@ -110,6 +110,28 @@ Apply remains disabled until every conflict has a decision. The operation ends
 with the Git commit id, making the change inspectable and reversible through
 normal Workspace history.
 
+The same transaction is available from inside the current Workspace without
+hand-authoring API calls:
+
+```bash
+alice-workspace template upgrade          # read-only preview
+alice-workspace template upgrade --apply  # re-plan and apply the exact current plan
+alice-workspace template upgrade --id <workspaceId>          # preview a peer
+alice-workspace template upgrade --id <workspaceId> --apply  # upgrade a paused peer
+```
+
+Conflicts require one repeatable `--keep-workspace <path>` or
+`--use-template <path>` decision per path. The caller's Workspace is the
+default target; an interactive manager can pass `--id` to reconcile a paused
+peer without entering its Session. The launcher still owns the plan digest
+internally. This keeps the shell surface aligned with the UI's safety contract
+while avoiding HTTP and transaction plumbing in agent prompts. A live Session
+cannot upgrade its own instructions underneath itself; pause it or apply from a
+separate manager Workspace.
+
+Cross-Workspace apply is an interactive management action. A headless run may
+preview another desk but the tool rejects applying that peer's upgrade.
+
 ## Shared Foundation, Different Workflows
 
 Template Upgrade and a future Workspace Merge/Absorb are not the same product

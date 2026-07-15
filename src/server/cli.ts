@@ -91,6 +91,7 @@ export function registerCliRoutes(app: Hono, deps: CliGatewayDeps): void {
         entityStore,
         ...(svc ? { provenanceStore: svc.provenanceStore } : {}),
         ...(svc ? { conversation: createWorkspaceConversationControl(svc) } : {}),
+        ...(svc ? { templateUpgrades: svc.templateUpgrades } : {}),
         // Lets workspace_path resolve ANY peer's dir (not just the caller) —
         // the in-workspace cross-workspace addressing path. Shared with the
         // mcp.ts build site so the two never drift.

@@ -145,7 +145,7 @@ export const CLI_EXPORTS: Record<string, CliExport> = {
   workspace: {
     binary: 'alice-workspace',
     scope: 'scoped',
-    description: 'Agent collaboration — push/read the user inbox, locate a peer workspace (peer path), track entities',
+    description: 'Workspace collaboration and management — Inbox, Issues, peers, provenance, and managed template upgrades',
     commands: {
       // inbox push: surface doc(s) + comment to the user's Inbox tab. Attach
       // files with repeatable `--doc <path>` (the shim folds them into the
@@ -195,6 +195,11 @@ export const CLI_EXPORTS: Record<string, CliExport> = {
         await: 'conversation_await',
         collect: 'conversation_collect',
         read: 'conversation_read',
+      },
+      // Current-Workspace managed template reconciliation. Preview is the
+      // default; `--apply` explicitly performs the reviewed safe operation.
+      template: {
+        upgrade: 'workspace_template_upgrade',
       },
     },
   },

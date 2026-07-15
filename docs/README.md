@@ -33,6 +33,13 @@ GitHub navigation.
 Other files under `docs/images/` are README/product assets rather than owner
 guides.
 
+## User Quickstarts
+
+- [[docs/remote-quickstart.md]] — [Remote quickstart](remote-quickstart.md):
+  install the preview CLI, prepare a private SSH host, connect and reconnect,
+  understand Server lifetime and security, and see the design inspiration
+  behind the remote path.
+
 Reference notes under `docs/reference/` are non-authoritative research
 material. The [installer script note](reference/install-script/README.md)
 records Claude Code and Codex upstream links and design lessons without

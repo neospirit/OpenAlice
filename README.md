@@ -95,6 +95,7 @@ Pick the run path that matches your machine:
 - **macOS** - use the signed Apple Silicon or Intel desktop build: [macOS install](https://openalice.ai/docs/getting-started/install-macos).
 - **Windows** - choose the self-contained unsigned desktop beta or the source path: [Windows install](https://openalice.ai/docs/getting-started/install-windows).
 - **Linux, contributors, debugging** - use the source path: [Source & Dev](https://openalice.ai/docs/getting-started/developer-setup).
+- **Private SSH host or travel setup** - keep the browser local and run the Runtime remotely: [Remote quickstart](docs/remote-quickstart.md).
 - **Server or always-on machine** - use Docker Compose: [Docker deployment](https://openalice.ai/docs/deployment/docker).
 
 The source path is still the best early-adopter path because it gives you logs and local code:

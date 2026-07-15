@@ -5,9 +5,10 @@ local and remote client responsibilities, SSH transport, managed remote
 bootstrap, control/status contracts, multi-client authority, and the staged
 path toward an independent Studio frontend.
 
-It complements [[docs/local-runtime.md]], [[docs/docker-deployment.md]], and
-[[docs/managed-workspace-runtime.md]]. The Herdr comparison that informed this
-design is recorded in
+Start with [[docs/remote-quickstart.md]] for the user-facing setup and daily
+workflow. This owner guide complements [[docs/local-runtime.md]],
+[[docs/docker-deployment.md]], and [[docs/managed-workspace-runtime.md]]. The
+Herdr comparison that informed this design is recorded in
 [[docs/reference/herdr-remote-architecture.md]]. That reference is research;
 this guide is the OpenAlice contract.
 

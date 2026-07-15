@@ -4,7 +4,9 @@ This guide owns the OpenAlice server-image contract, Docker Compose lifecycle,
 remote-host safety boundary, and container smoke requirements. It complements
 [[docs/project-structure.md]] and [[docs/managed-workspace-runtime.md]].
 External notification setup is owned by [[docs/connector-service.md]].
-Private browser access over SSH is owned by [[docs/remote-access.md]].
+For private source-backed browser access over SSH, start with
+[[docs/remote-quickstart.md]]; its authoritative lifecycle and transport
+contract is owned by [[docs/remote-access.md]].
 
 ## Topology
 

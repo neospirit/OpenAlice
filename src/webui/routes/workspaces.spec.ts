@@ -933,7 +933,7 @@ describe('Workspace manager surface routes', () => {
       expect.objectContaining({
         approveProject: true,
         appendSystemPrompt: expect.stringContaining('Workspace Manager'),
-        skills: ['/repo/default/skills/workspace-manager'],
+        skills: [join('/repo', 'default', 'skills', 'workspace-manager')],
       }),
     );
     expect(prompt).toHaveBeenCalledWith(createdRecord.id, 'Audit the floor.');

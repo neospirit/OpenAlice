@@ -170,8 +170,8 @@ export function WorkspaceManagerPage({ spec }: { spec: ManagerSpec }) {
         <div className="absolute -right-8 top-28 h-44 w-44 rounded-full border border-accent/10" />
       </div>
 
-      <div className="relative mx-auto flex min-h-full w-full max-w-5xl flex-col px-4 py-6 md:px-8 md:py-10">
-        <div className="mb-7 flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
+      <div className="workspace-manager-layout relative mx-auto flex min-h-full w-full max-w-5xl flex-col px-4 py-6 md:px-8 md:py-10">
+        <div className="workspace-manager-hero mb-7 flex flex-col gap-5">
           <div className="max-w-2xl">
             <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-accent/20 bg-accent/[0.07] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.15em] text-accent">
               <Network size={12} /> {t('workspaceManager.eyebrow')}
@@ -183,7 +183,7 @@ export function WorkspaceManagerPage({ spec }: { spec: ManagerSpec }) {
               {t('workspaceManager.subheading')}
             </p>
           </div>
-          <div className="grid grid-cols-2 gap-2 md:w-72">
+          <div className="workspace-manager-stats grid grid-cols-2 gap-2">
             <ManagerStat icon={Building2} label={t('workspaceManager.scope')} value={loading ? '—' : String(manager?.activeWorkspaceCount ?? 0)} />
             <ManagerStat icon={Bot} label={t('workspaceManager.runtime')} value="Pi · WebPi" />
           </div>
@@ -198,7 +198,7 @@ export function WorkspaceManagerPage({ spec }: { spec: ManagerSpec }) {
             rows={4}
             className="min-h-28 w-full resize-none bg-transparent px-1 py-1 text-[14px] leading-relaxed text-text outline-none placeholder:text-text-muted/55 md:text-[15px]"
           />
-          <div className="mt-3 flex flex-col gap-2 border-t border-border/60 pt-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="workspace-manager-composer-footer mt-3 flex flex-col gap-2 border-t border-border/60 pt-3">
             <div className="flex min-w-0 items-center gap-2">
               <span className="inline-flex items-center gap-1.5 rounded-md bg-bg-tertiary px-2.5 py-1.5 text-[11px] text-text-muted">
                 <Bot size={12} /> Pi · WebPi
@@ -249,12 +249,12 @@ export function WorkspaceManagerPage({ spec }: { spec: ManagerSpec }) {
           <div className="mt-3 rounded-lg border border-red/25 bg-red/10 px-3 py-2 text-[12px] text-red">{error}</div>
         )}
 
-        <div className="mt-7 grid gap-6 lg:grid-cols-[1.25fr_0.75fr]">
-          <section>
+        <div className="workspace-manager-support-grid mt-7 grid min-w-0 gap-6">
+          <section className="workspace-manager-suggestions-section min-w-0">
             <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted/70">
               {t('workspaceManager.suggestions')}
             </h2>
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className="workspace-manager-suggestions grid min-w-0 gap-2">
               {suggestions.map((suggestion, index) => {
                 const Icon = SUGGESTION_ICONS[index] ?? Network
                 return (
@@ -275,7 +275,7 @@ export function WorkspaceManagerPage({ spec }: { spec: ManagerSpec }) {
             <p className="mt-3 text-[11px] leading-relaxed text-text-muted/65">{t('workspaceManager.guardrail')}</p>
           </section>
 
-          <section>
+          <section className="min-w-0">
             <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted/70">
               {t('workspaceManager.recent')}
             </h2>

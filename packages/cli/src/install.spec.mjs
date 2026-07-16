@@ -30,6 +30,7 @@ describe.skipIf(process.platform === 'win32')('OpenAlice CLI installer', { timeo
     const cliManifest = JSON.parse(await readFile(join(repositoryRoot, 'packages/cli/package.json'), 'utf8'))
 
     expect(installer).toContain('DEFAULT_BRANCH="master"')
+    expect(installer).toContain('PUBLIC_INSTALLER_URL="https://openalice.ai/install"')
     expect(installer).toContain('MINIMUM_NODE_VERSION="22.19.0"')
     expect(installer).toContain('PI_VERSION="0.80.6"')
     expect(desktopVendor).toContain("const PI_VERSION = '0.80.6'")
@@ -67,6 +68,26 @@ describe.skipIf(process.platform === 'win32')('OpenAlice CLI installer', { timeo
       '--version', 'v0.2.0',
     ], { env: installerEnv(home) })).rejects.toMatchObject({
       stderr: expect.stringContaining('Use only one of --branch or --version'),
+    })
+  })
+
+  it('records the public installer URL for the default master channel', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'openalice-install-public-source-'))
+    temporaryPaths.push(home)
+    const installRoot = join(home, '.openalice')
+    const installer = join(repositoryRoot, 'install')
+
+    await execFileAsync('bash', [installer,
+      '--source', repositoryRoot,
+      '--install-dir', installRoot,
+      '--no-modify-path',
+      '--yes',
+    ], { env: installerEnv(home) })
+
+    const versionInfo = await execFileAsync(join(installRoot, 'bin', 'openalice'), ['version', '--json'])
+    expect(JSON.parse(versionInfo.stdout).installSource).toMatchObject({
+      selector: { kind: 'branch', value: 'master' },
+      installerUrl: 'https://openalice.ai/install',
     })
   })
 

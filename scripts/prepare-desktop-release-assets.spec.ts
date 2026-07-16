@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -49,6 +50,7 @@ describe('prepareMirrorAssets', () => {
         'OpenAlice-1.2.3-beta-mac.zip',
         'OpenAlice.Setup.1.2.3-beta.exe',
         'OpenAlice.Setup.1.2.3-beta.exe.blockmap',
+        'OpenAlice-1.2.3-beta-install',
       ]
       for (const file of files) writeFileSync(join(dir, file), file)
       writeFileSync(join(dir, 'latest-mac.yml'), 'version: 1.2.3-beta\n')
@@ -71,6 +73,12 @@ describe('prepareMirrorAssets', () => {
       expect(manifest.feeds.macIntel).toBe('https://download.openalice.ai/beta-mac-intel.yml')
       expect(manifest.macX64Dmg).toBe('https://download.openalice.ai/mac-x64.dmg')
       expect(manifest.versioned.macX64Zip).toBe('https://download.openalice.ai/OpenAlice-1.2.3-beta-mac.zip')
+      expect(readFileSync(join(dir, 'install'), 'utf8')).toBe('OpenAlice-1.2.3-beta-install')
+      expect(manifest.installer).toEqual({
+        url: 'https://download.openalice.ai/install',
+        sha256: createHash('sha256').update('OpenAlice-1.2.3-beta-install').digest('hex'),
+        versionedUrl: 'https://download.openalice.ai/OpenAlice-1.2.3-beta-install',
+      })
     })
   })
 
@@ -88,6 +96,7 @@ describe('prepareMirrorAssets', () => {
       })
 
       expect(manifest.feeds.macIntel).toBeNull()
+      expect(manifest.installer).toBeNull()
       expect(manifest.macX64Dmg).toBeNull()
       expect(manifest.macArm64Dmg).toBe('https://download.openalice.ai/mac-arm64.dmg')
     })

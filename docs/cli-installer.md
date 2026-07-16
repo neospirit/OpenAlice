@@ -53,26 +53,32 @@ weaken or silently replace the Electron lane.
 
 ## Current Entry Point
 
-The preview installer is served directly from the `dev` branch:
+The stable installer is served from the OpenAlice site:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/TraderAlice/OpenAlice/dev/install | bash -s -- --branch dev
+curl -fsSL https://openalice.ai/install | bash
 ```
 
-It requires Node.js 22.19.0 or newer, matching the pinned Pi runtime's engine
-floor. With no selector, the installer targets the stable `master` branch;
-development dogfooding must opt into `--branch dev`. `--version` is reserved
-for a tag or commit, and the two selectors are mutually exclusive. The default
-install root is `~/.openalice`, and the downloaded OpenAlice payload is the file
-set declared by `FILES` in the root `install` script. The installer also
-downloads Pi's release-owned install manifest and lockfile for version `0.80.6`,
-verifies both against pinned SHA-256 values, and runs
-`npm ci --omit=dev --ignore-scripts` in the staged release.
+The release workflow publishes the same bytes as a versioned GitHub Release
+asset, mirrors them to `download.openalice.ai`, records their SHA-256 in the
+download manifest, and updates the rolling `install` alias without caching it.
+The main-site route proxies that release-owned alias and refuses non-script
+upstream content.
 
-The preview URL is not yet a stable release channel. Do not present a mutable
-`dev` ref as a signed or immutable release. A stable installer needs release
-assets and a release-owned authenticity chain; see
-[Authenticity boundary](#authenticity-boundary).
+The script requires Node.js 22.19.0 or newer, matching the pinned Pi runtime's
+engine floor. With no selector, it targets the stable `master` branch.
+Development dogfooding must opt into `--branch dev` explicitly:
+
+```bash
+curl -fsSL https://openalice.ai/install | bash -s -- --branch dev
+```
+
+`--version` selects a tag or commit, and the two selectors are mutually
+exclusive. The default install root is `~/.openalice`, and the downloaded
+OpenAlice payload is the file set declared by `FILES` in the root `install`
+script. The installer also downloads Pi's release-owned install manifest and
+lockfile for version `0.80.6`, verifies both against pinned SHA-256 values, and
+runs `npm ci --omit=dev --ignore-scripts` in the staged release.
 
 ## Load-Bearing Files
 
@@ -372,7 +378,7 @@ Environment inputs:
 | Variable | Meaning |
 |---|---|
 | `OPENALICE_INSTALL_DIR` | Default install root when `--install-dir` is absent |
-| `OPENALICE_INSTALL_URL` | Record the distributor-owned installer URL in installed provenance; used by fixtures and future CDN entry points |
+| `OPENALICE_INSTALL_URL` | Override the public installer URL recorded in installed provenance; used by fixtures and private mirrors |
 | `OPENALICE_INSTALL_BASE_URL` | Override payload base URL for local fixtures and installer tests |
 | `OPENALICE_PI_RELEASE_BASE_URL` | Override the pinned Pi release-asset base for installer tests |
 | `OPENALICE_PI_SOURCE_DIR` | Read the exact Pi manifest/lock assets from a local fixture |
@@ -388,16 +394,19 @@ semantics before becoming public API.
 
 ## Authenticity Boundary
 
-The current content identity protects update layout and detects accidental or
-local modification. It does not prove who supplied the downloaded files. The
-current preview script is fetched from the mutable `dev` URL with an explicit
-`--branch dev`, while the selector-free release contract targets `master`.
-Both paths choose payload files from the selected raw GitHub ref. Even when
-that payload ref is an immutable commit, a hash computed by the same downloaded
-installer is not an independent trust anchor.
+The public bootstrap is release-owned: each accepted release carries a
+versioned installer asset, the R2 manifest records its SHA-256, and the rolling
+main-site entry resolves to the mirrored bytes. The installed content identity
+then protects update layout and detects accidental or local modification.
 
-Do not describe the preview as cryptographically verified. A stable release
-path should establish this chain:
+This is still not a cryptographic signature. The installer downloads the CLI
+payload as individual files from the selected raw GitHub ref, and the R2
+manifest belongs to the same release control plane as the mirrored script.
+Even when that payload ref is an immutable commit, a hash published beside the
+download is not an independent trust anchor.
+
+Do not describe the CLI path as signed. A future archive/signature path should
+establish this chain:
 
 ```text
 trusted release metadata
@@ -525,8 +534,8 @@ Before publishing or promoting a change that affects the installer:
 5. Walk `pnpm test:install:docker --interactive` as a human.
 6. Exercise the installed CLI from `--source`; include the localhost handoff if
    the payload or start boundary changed.
-7. State residual platform and authenticity gaps explicitly. Do not treat an
-   unsigned raw-file preview as release-signing evidence.
+7. Verify the versioned installer asset, R2 `install` alias, manifest checksum,
+   and main-site proxy. State the remaining archive/signature gap explicitly.
 8. Keep Electron signing and notarization in the Electron release lane; the CLI
    preview must not read those secrets.
 

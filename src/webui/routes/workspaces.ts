@@ -31,7 +31,7 @@ import { isAgentRuntime, type CliAdapter, type WorkspaceAiCred } from '../../wor
 import { generatePetnameId } from '../../workspaces/petname-id.js';
 import { addCredential, readCredentials, readWorkspaceDefaultAgent, setCredentialLastModel, credentialWires, credentialWireShapeEnum, type Credential } from '../../core/config.js';
 import { inferCredentialVendor, resolveAnthropicAuthMode } from '../../core/credential-inference.js';
-import { compatibleCredentials, matchCredentialByApiKey } from '../../workspaces/credential-injection.js';
+import { compatibleCredentials, matchCredentialByApiKey, resolveInjectionModel } from '../../workspaces/credential-injection.js';
 import {
   AgentCredentialError,
   ensureAgentCredentialReady,
@@ -44,6 +44,12 @@ import {
   type QuickChatPreferences,
 } from '../../core/preferences.js';
 import { CHAT_WORKSPACE_TEMPLATE } from '../../workspaces/chat-workspace-resolver.js';
+import { TemplateUpgradeError } from '../../workspaces/template-upgrade.js';
+import { WorkspaceAbsorbError } from '../../workspaces/workspace-absorb.js';
+import {
+  MANAGER_SYSTEM_PROMPT,
+  managerSkillPath,
+} from '../../workspaces/manager-workspace.js';
 
 // The spawn body's `resume` value is an AGENT-side session id, whose shape is
 // adapter-native: uuid for claude/codex/pi, `ses_<base62>` for opencode. This
@@ -183,6 +189,18 @@ export function createWorkspaceRoutes(
     },
   ): Promise<SpawnSessionResult> {
     const id = meta.id;
+    const operationLease = svc.operationGuard?.acquire(id, 'interactive-session-start') ?? null;
+    if (svc.operationGuard && !operationLease) {
+      return {
+        ok: false,
+        status: 409,
+        body: {
+          error: 'workspace_busy',
+          message: `workspace is busy with ${svc.operationGuard.current(id) ?? 'another operation'}`,
+        },
+      };
+    }
+    try {
     const initialPrompt = opts.initialPrompt;
     let resume = opts.resume;
     const requestedIdentity = opts.resumeId ? svc.resumeRegistry.get(opts.resumeId) : null;
@@ -342,6 +360,9 @@ export function createWorkspaceRoutes(
       launcherLogger.error('workspace.session_spawn_failed', { id, err });
       return { ok: false, status: 500, body: { error: 'spawn_failed', message: (err as Error).message } };
     }
+    } finally {
+      operationLease?.release();
+    }
   }
 
   const publicSession = (record: SessionRecord): PublicSessionBody => {
@@ -441,6 +462,86 @@ export function createWorkspaceRoutes(
     }
   };
 
+  const managerWebPiOptions = {
+    appendSystemPrompt: MANAGER_SYSTEM_PROMPT,
+    skills: [managerSkillPath(svc.config.launcherRepoRoot)],
+    // WebPi has no TUI in which it could render Pi's trust prompt. Entering the
+    // explicit manager surface is the user's approval for its launcher-owned
+    // skill and active-office-floor cwd.
+    approveProject: true,
+  } as const;
+
+  const publicManager = async () => {
+    const meta = svc.managerWorkspace;
+    await svc.sessionRegistry.ensureLoaded(meta.id);
+    return {
+      id: meta.id,
+      tag: meta.tag,
+      activeWorkspaceCount: svc.registry.list().length,
+      sessions: svc.sessionRegistry
+        .listFor(meta.id)
+        .map(publicSession)
+        .sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt)),
+    };
+  };
+
+  // ── launcher-owned Workspace manager ───────────────────────────────────
+  // The manager's cwd is the active office floor, but it is intentionally not
+  // inserted into the business Workspace registry. Its sessions live in the
+  // same durable Session/Resume registries and always open through WebPi.
+  app.get('/manager', async (c) => c.json({ manager: await publicManager() }));
+
+  app.post('/manager/quick-start', async (c) => {
+    let prompt: string;
+    let credentialSlug: string | undefined;
+    try {
+      const body = await safeJson(c);
+      const fields = body && typeof body === 'object' ? body as Record<string, unknown> : {};
+      const seed = parseSeedPrompt(fields['prompt']);
+      if (seed === null) return c.json({ error: 'prompt_required' }, 400);
+      if ('error' in seed) return c.json(seed, 400);
+      prompt = seed.prompt;
+      if (typeof fields['credentialSlug'] === 'string' && fields['credentialSlug'].length > 0) {
+        credentialSlug = fields['credentialSlug'];
+      }
+    } catch (error) {
+      return c.json({ error: 'bad_request', message: (error as Error).message }, 400);
+    }
+
+    const meta = svc.managerWorkspace;
+    const spawned = await spawnInteractiveSession(meta, {
+      agentId: 'pi',
+      ...(credentialSlug ? { credentialSlug } : {}),
+      title: prompt,
+    });
+    if (!spawned.ok) return c.json(spawned.body, spawned.status as 400 | 409 | 500);
+
+    const record = svc.sessionRegistry.get(meta.id, spawned.session.sessionId);
+    if (!record) return c.json({ error: 'registry_failed', message: 'manager Session record is missing' }, 500);
+
+    try {
+      // A fresh native Pi id is allocated by the ordinary interactive spawn
+      // seam. Stop its unused TUI immediately, then reopen that exact native
+      // conversation in RPC mode and submit the visible user prompt.
+      svc.pool.disposeToken(record.id, 'switch fresh manager Session to WebPi');
+      await svc.startWebPiSession(meta, record, managerWebPiOptions);
+      const snapshot = await svc.webPi.prompt(record.id, prompt);
+      return c.json({
+        manager: await publicManager(),
+        session: publicSession(record),
+        snapshot,
+      }, 201);
+    } catch (error) {
+      await svc.sessionRegistry.update(meta.id, record.id, {
+        state: 'paused',
+        surface: 'webpi',
+        lastActiveAt: new Date().toISOString(),
+      }).catch(() => undefined);
+      launcherLogger.error('workspace_manager.quick_start_failed', { recordId: record.id, error });
+      return c.json({ error: 'manager_start_failed', message: (error as Error).message }, 500);
+    }
+  });
+
   // Detect which vault credential a workspace's loginless agent is currently
   // configured with (null when none / hand-edited). The "which cred is this
   // workspace using" probe the overwrite-notice and reuse-default both build on.
@@ -448,13 +549,25 @@ export function createWorkspaceRoutes(
     meta: WorkspaceMeta,
     agentId: string,
     credentials: Record<string, Credential>,
-  ): Promise<{ slug: string; model: string | null } | null> => {
+  ): Promise<{
+    slug: string;
+    model: string | null;
+    contextWindow: number | null;
+    wireShape: WireShape | null;
+  } | null> => {
     const adapter = svc.adapters.get(agentId);
     if (!adapter?.readAiConfig) return null;
     const cfg = await adapter.readAiConfig(meta.dir).catch(() => null);
     if (!cfg) return null;
     const slug = matchCredentialByApiKey(credentials, cfg.apiKey);
-    return slug ? { slug, model: cfg.model ?? null } : null;
+    return slug
+      ? {
+          slug,
+          model: cfg.model ?? null,
+          contextWindow: cfg.contextWindow ?? null,
+          wireShape: cfg.wireShape ?? null,
+        }
+      : null;
   };
 
   // ── templates / agents ───────────────────────────────────────────────────
@@ -615,6 +728,7 @@ export function createWorkspaceRoutes(
         : result.code === 'unknown_template' ? 400
         : result.code === 'unknown_agent' ? 400
         : result.code === 'tag_in_use' ? 409
+        : result.code === 'insufficient_storage' ? 507
         : 500;
       return c.json({
         error: result.code,
@@ -694,6 +808,118 @@ export function createWorkspaceRoutes(
     } catch (err) {
       launcherLogger.error('workspace.offboard_failed', { id, err });
       return c.json({ error: 'offboard_failed', message: (err as Error).message }, 500);
+    }
+  });
+
+  app.get('/:id/template-upgrade', async (c) => {
+    const id = c.req.param('id');
+    if (!validId(id)) return c.json({ error: 'not_found' }, 404);
+    try {
+      return c.json({ plan: await svc.templateUpgrades.plan(id) });
+    } catch (err) {
+      if (err instanceof TemplateUpgradeError) {
+        const status = err.code === 'not_found' ? 404
+          : err.code === 'unsupported' || err.code === 'busy' ? 409
+            : 400;
+        return c.json({ error: err.code, message: err.message, plan: err.plan }, status);
+      }
+      launcherLogger.error('workspace.template_upgrade_plan_failed', { id, err });
+      return c.json({ error: 'upgrade_plan_failed', message: (err as Error).message }, 500);
+    }
+  });
+
+  app.post('/:id/template-upgrade', async (c) => {
+    const id = c.req.param('id');
+    if (!validId(id)) return c.json({ error: 'not_found' }, 404);
+    const body = await safeJson(c);
+    const fields = body && typeof body === 'object' ? body as Record<string, unknown> : {};
+    if (typeof fields['planDigest'] !== 'string') {
+      return c.json({ error: 'bad_request', message: 'planDigest is required' }, 400);
+    }
+    const rawResolutions = fields['resolutions'];
+    const resolutions = rawResolutions && typeof rawResolutions === 'object' && !Array.isArray(rawResolutions)
+      ? Object.fromEntries(Object.entries(rawResolutions as Record<string, unknown>)
+          .filter((entry): entry is [string, 'workspace' | 'template'] =>
+            entry[1] === 'workspace' || entry[1] === 'template'))
+      : undefined;
+    try {
+      const result = await svc.templateUpgrades.apply(id, {
+        planDigest: fields['planDigest'],
+        ...(resolutions ? { resolutions } : {}),
+      });
+      return c.json({ result, workspace: await svc.publicMeta(svc.registry.get(id)!) });
+    } catch (err) {
+      if (err instanceof TemplateUpgradeError) {
+        const status = err.code === 'not_found' ? 404
+          : err.code === 'busy' || err.code === 'staged_changes' || err.code === 'stale_plan'
+            ? 409
+            : 400;
+        return c.json({ error: err.code, message: err.message, plan: err.plan }, status);
+      }
+      launcherLogger.error('workspace.template_upgrade_apply_failed', { id, err });
+      return c.json({ error: 'upgrade_apply_failed', message: (err as Error).message }, 500);
+    }
+  });
+
+  app.get('/:id/absorb/:sourceId', async (c) => {
+    const targetWorkspaceId = c.req.param('id');
+    const sourceWorkspaceId = c.req.param('sourceId');
+    if (!validId(targetWorkspaceId) || !validId(sourceWorkspaceId)) {
+      return c.json({ error: 'not_found' }, 404);
+    }
+    try {
+      return c.json({ plan: await svc.workspaceAbsorbs.plan(targetWorkspaceId, sourceWorkspaceId) });
+    } catch (err) {
+      if (err instanceof WorkspaceAbsorbError) {
+        const status = err.code === 'not_found' ? 404
+          : err.code === 'busy' || err.code === 'staged_changes' ? 409
+            : 400;
+        return c.json({ error: err.code, message: err.message, plan: err.plan }, status);
+      }
+      launcherLogger.error('workspace.absorb_plan_failed', { targetWorkspaceId, sourceWorkspaceId, err });
+      return c.json({ error: 'absorb_plan_failed', message: (err as Error).message }, 500);
+    }
+  });
+
+  app.post('/:id/absorb/:sourceId', async (c) => {
+    const targetWorkspaceId = c.req.param('id');
+    const sourceWorkspaceId = c.req.param('sourceId');
+    if (!validId(targetWorkspaceId) || !validId(sourceWorkspaceId)) {
+      return c.json({ error: 'not_found' }, 404);
+    }
+    const body = await safeJson(c);
+    const fields = body && typeof body === 'object' ? body as Record<string, unknown> : {};
+    if (typeof fields['planDigest'] !== 'string') {
+      return c.json({ error: 'bad_request', message: 'planDigest is required' }, 400);
+    }
+    const rawResolutions = fields['resolutions'];
+    const resolutions = rawResolutions && typeof rawResolutions === 'object' && !Array.isArray(rawResolutions)
+      ? Object.fromEntries(Object.entries(rawResolutions as Record<string, unknown>)
+          .filter((entry): entry is [string, 'target' | 'source' | 'both'] =>
+            entry[1] === 'target' || entry[1] === 'source' || entry[1] === 'both'))
+      : undefined;
+    try {
+      const result = await svc.workspaceAbsorbs.apply({
+        targetWorkspaceId,
+        sourceWorkspaceId,
+        planDigest: fields['planDigest'],
+        ...(resolutions ? { resolutions } : {}),
+      });
+      const target = svc.registry.get(targetWorkspaceId);
+      return c.json({
+        result,
+        ...(target ? { workspace: await svc.publicMeta(target) } : {}),
+      });
+    } catch (err) {
+      if (err instanceof WorkspaceAbsorbError) {
+        const status = err.code === 'not_found' ? 404
+          : err.code === 'busy' || err.code === 'staged_changes' || err.code === 'stale_plan' || err.code === 'offboard_failed'
+            ? 409
+            : 400;
+        return c.json({ error: err.code, message: err.message, plan: err.plan }, status);
+      }
+      launcherLogger.error('workspace.absorb_apply_failed', { targetWorkspaceId, sourceWorkspaceId, err });
+      return c.json({ error: 'absorb_apply_failed', message: (err as Error).message }, 500);
     }
   });
 
@@ -1248,7 +1474,10 @@ export function createWorkspaceRoutes(
     const id = c.req.param('id');
     const token = c.req.param('sid');
     if (!validId(id) || !validId(token)) return c.json({ error: 'not_found' }, 404);
-    const meta = svc.registry.get(id);
+    // Older embedders/tests may provide only the business registry. Keep the
+    // ordinary Workspace path compatible while the launcher-owned manager is
+    // resolved through the newer service seam.
+    const meta = svc.resolveRuntimeWorkspace?.(id) ?? svc.registry.get(id);
     const record = svc.sessionRegistry.get(id, token);
     if (!meta || !record) return c.json({ error: 'not_found' }, 404);
     if (record.agent !== 'pi') {
@@ -1265,7 +1494,11 @@ export function createWorkspaceRoutes(
         await adapter.bootstrap({ wsId: id, cwd: meta.dir, launcherRepoRoot: svc.config.launcherRepoRoot });
       }
       if (svc.pool.get(token)) svc.pool.disposeToken(token, 'switch to WebPi');
-      const snapshot = await svc.startWebPiSession(meta, record);
+      const snapshot = await svc.startWebPiSession(
+        meta,
+        record,
+        id === svc.managerWorkspace?.id ? managerWebPiOptions : undefined,
+      );
       return c.json({ ok: true, snapshot, session: publicSession(record) });
     } catch (err) {
       await svc.sessionRegistry.update(id, token, {
@@ -1678,19 +1911,23 @@ export function createWorkspaceRoutes(
       // `?agent=<id>` filters to the credentials that agent can actually be
       // driven by (its wire shapes) — the quick-chat runtime dropdown uses this
       // so it never offers a cred the agent can't speak. apiKey omitted in this
-      // mode (the dropdown only needs to label + pick), kept for the modal's
-      // unfiltered "load saved" picker.
+      // mode; the dropdown receives only presentation/injection metadata, while
+      // the unfiltered Workspace modal keeps the key-bearing response.
       const agent = c.req.query('agent');
       const entries = agent ? compatibleCredentials(credentials, agent) : Object.entries(credentials);
-      const list = entries.map(([slug, cred]) => ({
-        slug,
-        vendor: cred.vendor,
-        ...(cred.label ? { label: cred.label } : {}),
-        authType: cred.authType,
-        wires: credentialWires(cred), // shape → endpoint; the modal picks one per agent
-        ...(cred.lastModel ? { lastModel: cred.lastModel } : {}),
-        ...(agent ? {} : { apiKey: cred.apiKey ?? null }),
-      }));
+      const list = entries.map(([slug, cred]) => {
+        const resolvedModel = resolveInjectionModel(cred);
+        return {
+          slug,
+          vendor: cred.vendor,
+          ...(cred.label ? { label: cred.label } : {}),
+          authType: cred.authType,
+          wires: credentialWires(cred), // shape → endpoint; the modal picks one per agent
+          ...(cred.lastModel ? { lastModel: cred.lastModel } : {}),
+          ...(resolvedModel ? { resolvedModel } : {}),
+          ...(agent ? {} : { apiKey: cred.apiKey ?? null }),
+        };
+      });
       return c.json({ credentials: list });
     } catch (err) {
       launcherLogger.warn('credentials.read_failed', { err });
@@ -1748,9 +1985,9 @@ export function createWorkspaceRoutes(
   });
 
   // Which vault credential this workspace's agent is currently configured with
-  // (slug + model), or null. Feeds the quick-chat composer's overwrite notice:
-  // "this workspace uses X — sending with Y will switch it". Detection only —
-  // never mutates.
+  // (slug + effective model/protocol/context), or null. Feeds the quick-chat
+  // composer's overwrite notice and its compact launch-config summary.
+  // Detection only — never mutates.
   app.get('/:id/agent-config/:agent/credential', async (c) => {
     const id = c.req.param('id');
     const agent = c.req.param('agent');
@@ -1759,11 +1996,16 @@ export function createWorkspaceRoutes(
     if (!meta) return c.json({ error: 'not_found' }, 404);
     try {
       const detected = await detectWorkspaceCred(meta, agent, await readCredentials());
-      return c.json({ slug: detected?.slug ?? null, model: detected?.model ?? null });
+      return c.json({
+        slug: detected?.slug ?? null,
+        model: detected?.model ?? null,
+        contextWindow: detected?.contextWindow ?? null,
+        wireShape: detected?.wireShape ?? null,
+      });
     } catch (err) {
       if (err instanceof PathTraversal) return c.json({ error: 'invalid_path' }, 400);
       launcherLogger.warn('agent_config.detect_cred_failed', { id, agent, err });
-      return c.json({ slug: null, model: null });
+      return c.json({ slug: null, model: null, contextWindow: null, wireShape: null });
     }
   });
 

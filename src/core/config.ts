@@ -115,10 +115,15 @@ export type CredentialAuthType = z.infer<typeof credentialAuthTypeEnum>
  * derivable from baseUrl alone — OpenAI Chat Completions and Responses share
  * one base URL (api.openai.com/v1), so only this field distinguishes them. Also
  * tells injection how to configure the consuming adapter. Mirrors the
- * `WireShape` union in ai-providers/preset-catalog.ts (kept in sync by hand —
- * 3 stable values; core must not depend on the ai-providers layer).
+ * `WireShape` union in ai-providers/preset-catalog.ts (kept in sync by hand;
+ * core must not depend on the ai-providers layer).
  */
-export const credentialWireShapeEnum = z.enum(['anthropic', 'openai-chat', 'openai-responses'])
+export const credentialWireShapeEnum = z.enum([
+  'anthropic',
+  'google-generative-ai',
+  'openai-chat',
+  'openai-responses',
+])
 export type CredentialWireShape = z.infer<typeof credentialWireShapeEnum>
 
 export const credentialSchema = z.object({
@@ -177,8 +182,19 @@ export function credentialWires(cred: Credential): Partial<Record<CredentialWire
 export const workspaceCredentialDefaultSchema = z.object({
   credentialSlug: z.string(),
   model: z.string().optional(),
+  /** Optional explicit protocol when a credential exposes more than one wire. */
+  wireShape: credentialWireShapeEnum.optional(),
 })
 export type WorkspaceCredentialDefault = z.infer<typeof workspaceCredentialDefaultSchema>
+
+export const DEFAULT_WORKSPACE_CONTEXT_WINDOW = 256_000
+export const workspaceContextWindowSchema = z.union([
+  z.literal(128_000),
+  z.literal(256_000),
+  z.literal(512_000),
+  z.literal(1_000_000),
+])
+export type WorkspaceContextWindow = z.infer<typeof workspaceContextWindowSchema>
 
 export const aiProviderSchema = z.object({
   apiKeys: apiKeysSchema.default({}),
@@ -198,6 +214,12 @@ export const aiProviderSchema = z.object({
    * `credentials`; a dangling slug is loud-skipped at injection, never fatal.
    */
   workspaceCredentialDefaults: z.record(z.string(), workspaceCredentialDefaultSchema).default({}),
+  /**
+   * Context limit written into newly injected opencode/Pi custom models. Keep
+   * the default below the common 256K price-tier boundary; users can opt into
+   * a larger window explicitly without changing existing workspaces.
+   */
+  workspaceDefaultContextWindow: workspaceContextWindowSchema.default(DEFAULT_WORKSPACE_CONTEXT_WINDOW),
   /**
    * User-level default runtime for new interactive workspace sessions. This is
    * intentionally separate from workspace identity (`agents[]`) and from
@@ -334,31 +356,15 @@ const compactionSchema = z.object({
   microcompactKeepRecent: z.number().default(3),
 })
 
-/**
- * MCP server config — exposes OpenAlice's ToolCenter to external MCP
- * clients (Claude Desktop, codex inside workspaces, etc.). Lives at the
- * top level of Config rather than under `connectors:` because it's an
- * export direction (ToolCenter → outside), not a chat-input connector.
- * `connectors.mcpAsk` is the actual chat-shaped MCP-as-input flavour
- * and stays in connectors.
- */
+/** MCP server config — exports OpenAlice's ToolCenter to MCP clients. */
 const mcpSchema = z.object({
   enabled: z.boolean().default(false),
   port: z.number().int().positive().default(3001),
 }).default({ enabled: false, port: 3001 })
 
-const connectorsSchema = z.object({
-  web: z.object({ port: z.number().int().positive().default(3002) }).default({ port: 3002 }),
-  mcpAsk: z.object({
-    enabled: z.boolean().default(false),
-    port: z.number().int().positive().optional(),
-  }).default({ enabled: false }),
-  telegram: z.object({
-    enabled: z.boolean().default(false),
-    botToken: z.string().optional(),
-    botUsername: z.string().optional(),
-    chatIds: z.array(z.number()).default([]),
-  }).default({ enabled: false, chatIds: [] }),
+/** Local listeners are transport configuration, not external connectors. */
+const portsSchema = z.object({
+  web: z.number().int().positive().default(3002),
 })
 
 const snapshotSchema = z.object({
@@ -484,7 +490,7 @@ export type Config = {
   snapshot: z.infer<typeof snapshotSchema>
   trading: z.infer<typeof tradingSchema>
   mcp: z.infer<typeof mcpSchema>
-  connectors: z.infer<typeof connectorsSchema>
+  ports: z.infer<typeof portsSchema>
   news: z.infer<typeof newsCollectorSchema>
   tools: z.infer<typeof toolsSchema>
 }
@@ -528,7 +534,7 @@ async function loadConfigUnlocked(): Promise<Config> {
   // is pending. See src/migrations/INDEX.md for the full list.
   await runMigrations()
 
-  const files = ['engine.json', 'agent.json', 'crypto.json', 'securities.json', 'market-data.json', 'compaction.json', 'ai-provider-manager.json', 'snapshot.json', 'mcp.json', 'connectors.json', 'news.json', 'tools.json', 'trading.json'] as const
+  const files = ['engine.json', 'agent.json', 'crypto.json', 'securities.json', 'market-data.json', 'compaction.json', 'ai-provider-manager.json', 'snapshot.json', 'mcp.json', 'ports.json', 'news.json', 'tools.json', 'trading.json'] as const
   const raws = await Promise.all(files.map((f) => loadJsonFile(f)))
 
   const config: Config = {
@@ -541,7 +547,7 @@ async function loadConfigUnlocked(): Promise<Config> {
     aiProvider:    await parseAndSeed(files[6], aiProviderSchema, raws[6]),
     snapshot:      await parseAndSeed(files[7], snapshotSchema, raws[7]),
     mcp:           await parseAndSeed(files[8], mcpSchema, raws[8]),
-    connectors:    await parseAndSeed(files[9], connectorsSchema, raws[9]),
+    ports:         await parseAndSeed(files[9], portsSchema, raws[9]),
     news:          await parseAndSeed(files[10], newsCollectorSchema, raws[10]),
     tools:         await parseAndSeed(files[11], toolsSchema, raws[11]),
     trading:       await parseAndSeed(files[12], tradingSchema, raws[12]),
@@ -554,7 +560,7 @@ async function loadConfigUnlocked(): Promise<Config> {
   // taken). In dev mode (no guardian) both env vars are unset and the
   // file value flows through unchanged.
   const envWebPort = parseEnvPort(process.env['OPENALICE_WEB_PORT'])
-  if (envWebPort !== null) config.connectors.web.port = envWebPort
+  if (envWebPort !== null) config.ports.web = envWebPort
   const envMcpPort = parseEnvPort(process.env['OPENALICE_MCP_PORT'])
   if (envMcpPort !== null) config.mcp.port = envMcpPort
 
@@ -866,16 +872,6 @@ export async function readToolsConfig() {
   }
 }
 
-/** Read connectors config from disk (called per-request for hot-reload). */
-export async function readConnectorsConfig() {
-  try {
-    const raw = JSON.parse(await readFile(resolve(CONFIG_DIR, 'connectors.json'), 'utf-8'))
-    return connectorsSchema.parse(raw)
-  } catch {
-    return connectorsSchema.parse({})
-  }
-}
-
 // ==================== Credential Helpers ====================
 
 /** Read a credential by slug. Throws if missing. */
@@ -921,10 +917,18 @@ export async function addCredential(credential: Credential): Promise<string> {
     c.apiKey === validated.apiKey,
   )
   if (match) {
-    // Upgrade the existing record's wires/endpoint in place (don't duplicate).
+    // Upgrade the existing record's wire capabilities in place (don't
+    // duplicate). A per-Workspace "save to Alice" contributes one shape at a
+    // time, so merge rather than replace or a later save would silently erase
+    // the other protocol selected by Workspace defaults.
     const existing = match[1]
+    const mergedWires = {
+      ...credentialWires(existing),
+      ...credentialWires(validated),
+    }
     config.credentials[match[0]] = {
       ...validated,
+      ...(Object.keys(mergedWires).length ? { wires: mergedWires } : {}),
       ...(validated.label ?? existing.label ? { label: validated.label ?? existing.label } : {}),
       ...(validated.lastModel ?? existing.lastModel ? { lastModel: validated.lastModel ?? existing.lastModel } : {}),
     }
@@ -998,6 +1002,37 @@ export async function writeWorkspaceCredentialDefaults(
   await writeFile(resolve(CONFIG_DIR, 'ai-provider-manager.json'), JSON.stringify(config, null, 2) + '\n')
 }
 
+export async function readWorkspaceDefaultContextWindow(): Promise<WorkspaceContextWindow> {
+  const config = await readAIProviderConfig()
+  return config.workspaceDefaultContextWindow
+}
+
+export async function writeWorkspaceDefaultContextWindow(
+  contextWindow: WorkspaceContextWindow,
+): Promise<void> {
+  const config = await readAIProviderConfig()
+  config.workspaceDefaultContextWindow = workspaceContextWindowSchema.parse(contextWindow)
+  await mkdir(CONFIG_DIR, { recursive: true })
+  await writeFile(resolve(CONFIG_DIR, 'ai-provider-manager.json'), JSON.stringify(config, null, 2) + '\n')
+}
+
+/** Atomically replace the two defaults that seed newly created Workspaces. */
+export async function writeWorkspaceCreationDefaults(
+  defaults: Record<string, WorkspaceCredentialDefault>,
+  contextWindow: WorkspaceContextWindow,
+): Promise<void> {
+  const config = await readAIProviderConfig()
+  const cleaned: Record<string, WorkspaceCredentialDefault> = {}
+  for (const [agentId, def] of Object.entries(defaults)) {
+    const parsed = workspaceCredentialDefaultSchema.parse(def)
+    if (parsed.credentialSlug) cleaned[agentId] = parsed
+  }
+  config.workspaceCredentialDefaults = cleaned
+  config.workspaceDefaultContextWindow = workspaceContextWindowSchema.parse(contextWindow)
+  await mkdir(CONFIG_DIR, { recursive: true })
+  await writeFile(resolve(CONFIG_DIR, 'ai-provider-manager.json'), JSON.stringify(config, null, 2) + '\n')
+}
+
 export async function readWorkspaceDefaultAgent(): Promise<string | null> {
   const config = await readAIProviderConfig()
   return config.workspaceDefaultAgent ?? null
@@ -1037,7 +1072,7 @@ const sectionSchemas: Record<ConfigSection, z.ZodTypeAny> = {
   snapshot: snapshotSchema,
   trading: tradingSchema,
   mcp: mcpSchema,
-  connectors: connectorsSchema,
+  ports: portsSchema,
   news: newsCollectorSchema,
   tools: toolsSchema,
 }
@@ -1053,7 +1088,7 @@ const sectionFiles: Record<ConfigSection, string> = {
   snapshot: 'snapshot.json',
   trading: 'trading.json',
   mcp: 'mcp.json',
-  connectors: 'connectors.json',
+  ports: 'ports.json',
   news: 'news.json',
   tools: 'tools.json',
 }

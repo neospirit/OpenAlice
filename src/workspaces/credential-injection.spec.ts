@@ -18,6 +18,10 @@ const minimaxIntl: Credential = {
 }
 const openaiKey: Credential = { vendor: 'openai', authType: 'api-key', apiKey: 'sk-oa', wires: { 'openai-responses': '', 'openai-chat': '' } }
 const chatOnlyGateway: Credential = { vendor: 'custom', authType: 'api-key', apiKey: 'k', wires: { 'openai-chat': 'https://gw.example.com/v1' } }
+const googleKey: Credential = {
+  vendor: 'google', authType: 'api-key', apiKey: 'AQ.google',
+  wires: { 'google-generative-ai': 'https://generativelanguage.googleapis.com/v1beta' },
+}
 
 describe('credentialToWorkspaceAiCred', () => {
   it('picks the agent\'s wire (claude → anthropic) + apiKey; model from overrides', () => {
@@ -71,23 +75,51 @@ describe('credentialToWorkspaceAiCred', () => {
     })
   })
 
-  describe('opencode / pi → prefers chat, no adapter-specific knobs', () => {
+  describe('opencode / pi → supports selectable provider wires', () => {
     for (const agent of ['opencode', 'pi']) {
       it(`${agent}: picks openai-chat, sets neither authMode nor wireApi`, () => {
         const cred = credentialToWorkspaceAiCred(chatOnlyGateway, agent, { model: 'some-model' })!
         expect(cred.wireShape).toBe('openai-chat')
         expect(cred.authMode).toBeUndefined()
         expect(cred.wireApi).toBeUndefined()
-        expect(cred.contextWindow).toBe(1_000_000)
+        expect(cred.contextWindow).toBe(256_000)
         expect(cred.apiKey).toBe('k')
         expect(cred.baseUrl).toBe('https://gw.example.com/v1')
       })
     }
   })
 
+  it('honors an explicit compatible wire and rejects an incompatible one', () => {
+    for (const agent of ['opencode', 'pi']) {
+      const anthropic = credentialToWorkspaceAiCred(minimaxIntl, agent, {
+        model: 'MiniMax-M3',
+        wireShape: 'anthropic',
+      })!
+      expect(anthropic).toMatchObject({
+        wireShape: 'anthropic',
+        baseUrl: 'https://api.minimax.io/anthropic',
+        authMode: 'bearer',
+      })
+    }
+    expect(credentialToWorkspaceAiCred(minimaxIntl, 'codex', { wireShape: 'anthropic' })).toBeNull()
+  })
+
   it('lets opencode/pi override the default context window', () => {
     const cred = credentialToWorkspaceAiCred(chatOnlyGateway, 'pi', { model: 'some-model', contextWindow: 256_000 })!
     expect(cred.contextWindow).toBe(256_000)
+  })
+
+  it('injects Google through the native wire for opencode and Pi only', () => {
+    for (const agent of ['opencode', 'pi']) {
+      expect(credentialToWorkspaceAiCred(googleKey, agent, { model: 'gemini-3.1-flash-lite' })).toMatchObject({
+        baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+        apiKey: 'AQ.google',
+        model: 'gemini-3.1-flash-lite',
+        wireShape: 'google-generative-ai',
+      })
+    }
+    expect(credentialToWorkspaceAiCred(googleKey, 'claude')).toBeNull()
+    expect(credentialToWorkspaceAiCred(googleKey, 'codex')).toBeNull()
   })
 })
 
@@ -216,11 +248,12 @@ describe('compatibleCredentials', () => {
     'anthropic-1': anthropicKey,
     'openai-1': openaiKey,
     'custom-1': chatOnlyGateway,
+    'google-1': googleKey,
   }
 
-  it('opencode/pi accept any wire — all three creds are compatible', () => {
-    expect(compatibleCredentials(vault, 'opencode').map(([s]) => s)).toEqual(['anthropic-1', 'openai-1', 'custom-1'])
-    expect(compatibleCredentials(vault, 'pi').map(([s]) => s)).toEqual(['anthropic-1', 'openai-1', 'custom-1'])
+  it('opencode/pi accept every supported wire including native Google', () => {
+    expect(compatibleCredentials(vault, 'opencode').map(([s]) => s)).toEqual(['anthropic-1', 'openai-1', 'custom-1', 'google-1'])
+    expect(compatibleCredentials(vault, 'pi').map(([s]) => s)).toEqual(['anthropic-1', 'openai-1', 'custom-1', 'google-1'])
   })
 
   it('claude needs an anthropic wire — only the anthropic key qualifies', () => {
@@ -258,10 +291,12 @@ describe('matchCredentialByApiKey', () => {
 describe('resolveInjectionModel', () => {
   it('prefers the credential\'s remembered lastModel', () => {
     expect(resolveInjectionModel({ vendor: 'openai', lastModel: 'gpt-5.5-custom' })).toBe('gpt-5.5-custom')
+    expect(resolveInjectionModel({ vendor: 'openai', lastModel: 'gpt-5.5' })).toBe('gpt-5.5')
   })
 
-  it('falls back to the vendor flagship when no lastModel', () => {
+  it('falls back to the vendor recommendation when no lastModel', () => {
     expect(resolveInjectionModel({ vendor: 'anthropic' })).toBe('claude-opus-4-8')
+    expect(resolveInjectionModel({ vendor: 'openai' })).toBe('gpt-5.6')
     expect(resolveInjectionModel({ vendor: 'glm' })).toBe('glm-5.2')
     expect(resolveInjectionModel({ vendor: 'longcat' })).toBe('LongCat-2.0')
   })

@@ -10,7 +10,13 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 import { createWorkspaceRoutes } from './workspaces.js';
-import { readCredentials, readWorkspaceDefaultAgent, setCredentialLastModel, type Credential } from '../../core/config.js';
+import {
+  readCredentials,
+  readWorkspaceDefaultAgent,
+  readWorkspaceDefaultContextWindow,
+  setCredentialLastModel,
+  type Credential,
+} from '../../core/config.js';
 import type { WorkspaceService } from '../../workspaces/service.js';
 import type { WorkspaceAiCred } from '../../workspaces/cli-adapter.js';
 import { ChatWorkspaceResolver } from '../../workspaces/chat-workspace-resolver.js';
@@ -23,6 +29,7 @@ vi.mock('../../core/config.js', async (importActual) => {
     ...actual,
     readCredentials: vi.fn(),
     readWorkspaceDefaultAgent: vi.fn(async () => null),
+    readWorkspaceDefaultContextWindow: vi.fn(async () => 256_000),
     setCredentialLastModel: vi.fn(async () => {}),
   };
 });
@@ -148,6 +155,11 @@ async function quickChat(app: any, body: unknown) {
   return { status: res.status, body: await res.json().catch(() => null) };
 }
 
+async function get(app: any, path: string) {
+  const res = await app.request(path);
+  return { status: res.status, body: await res.json().catch(() => null) };
+}
+
 async function spawnSession(app: any, body: unknown) {
   const res = await app.request('/ws-1/sessions/spawn', {
     method: 'POST',
@@ -160,7 +172,61 @@ async function spawnSession(app: any, body: unknown) {
 beforeEach(() => {
   vi.mocked(readCredentials).mockReset();
   vi.mocked(readWorkspaceDefaultAgent).mockResolvedValue(null);
+  vi.mocked(readWorkspaceDefaultContextWindow).mockResolvedValue(256_000);
   vi.mocked(setCredentialLastModel).mockClear();
+});
+
+describe('GET /credentials — Quick Chat launch metadata', () => {
+  it('returns the model a compatible credential would inject before first use', async () => {
+    vi.mocked(readCredentials).mockResolvedValue({
+      'google-1': {
+        vendor: 'google',
+        authType: 'api-key',
+        apiKey: 'AQ.test',
+        wires: { 'google-generative-ai': 'https://generativelanguage.googleapis.com/v1beta' },
+      },
+    });
+    const { app } = build();
+
+    const result = await get(app, '/credentials?agent=opencode');
+
+    expect(result.status).toBe(200);
+    expect(result.body.credentials).toEqual([
+      expect.objectContaining({
+        slug: 'google-1',
+        resolvedModel: 'gemini-3.1-flash-lite',
+      }),
+    ]);
+  });
+
+  it('returns the target workspace model, context, and protocol for the selected credential', async () => {
+    vi.mocked(readCredentials).mockResolvedValue({
+      'google-1': {
+        vendor: 'google',
+        authType: 'api-key',
+        apiKey: 'AQ.test',
+        wires: { 'google-generative-ai': 'https://generativelanguage.googleapis.com/v1beta' },
+      },
+    });
+    const { app } = build({
+      opencodeConfig: {
+        apiKey: 'AQ.test',
+        model: 'gemini-3.5-flash',
+        contextWindow: 512_000,
+        wireShape: 'google-generative-ai',
+      },
+    });
+
+    const result = await get(app, '/ws-1/agent-config/opencode/credential');
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({
+      slug: 'google-1',
+      model: 'gemini-3.5-flash',
+      contextWindow: 512_000,
+      wireShape: 'google-generative-ai',
+    });
+  });
 });
 
 describe('POST /quick-chat — loginless credential injection', () => {
@@ -175,7 +241,7 @@ describe('POST /quick-chat — loginless credential injection', () => {
     expect(spawn).not.toHaveBeenCalled();
   });
 
-  it('opencode + compatible cred → injects it (flagship model) then spawns', async () => {
+  it('opencode + compatible cred → injects the current vendor recommendation then spawns', async () => {
     vi.mocked(readCredentials).mockResolvedValue({ 'openai-1': openaiKey });
     const { app, opencode, spawn } = build();
     const r = await quickChat(app, { prompt: 'hi', agent: 'opencode' });
@@ -184,10 +250,10 @@ describe('POST /quick-chat — loginless credential injection', () => {
     const cred = (opencode.writeAiConfig.mock.calls[0] as any[])[1];
     expect(cred.apiKey).toBe('sk-oa');
     expect(cred.wireShape).toBe('openai-chat');
-    expect(cred.model).toBe('gpt-5.5'); // vendor flagship — no lastModel yet
-    expect(cred.contextWindow).toBe(1_000_000);
+    expect(cred.model).toBe('gpt-5.6'); // current vendor recommendation — no lastModel yet
+    expect(cred.contextWindow).toBe(256_000);
     // model remembered on the cred for next time
-    expect(vi.mocked(setCredentialLastModel)).toHaveBeenCalledWith('openai-1', 'gpt-5.5');
+    expect(vi.mocked(setCredentialLastModel)).toHaveBeenCalledWith('openai-1', 'gpt-5.6');
     expect(spawn).toHaveBeenCalledOnce();
   });
 

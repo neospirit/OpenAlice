@@ -36,6 +36,11 @@ import type { IssuesSnapshot, IssueDetail, WikilinkIssueRef } from '../workspace
 import type { WorkspaceSessionDirectory } from '../workspaces/session-directory.js'
 import type { HeadlessStructuredOutput } from '../workspaces/headless-output.js'
 import type { HeadlessInquirySubject, HeadlessTaskStatus } from '../workspaces/headless-task-registry.js'
+import type {
+  ApplyTemplateUpgradeInput,
+  TemplateUpgradePlan,
+  TemplateUpgradeResult,
+} from '../workspaces/template-upgrade.js'
 
 export type WorkspaceConversationTarget =
   | { kind: 'resume'; resumeId: string }
@@ -131,6 +136,12 @@ export interface WorkspaceConversationControl {
   read(taskId: string): Promise<WorkspaceConversationTask | null>
 }
 
+/** Launcher-owned reconciliation for the caller's current Workspace. */
+export interface WorkspaceTemplateUpgradeControl {
+  plan(workspaceId: string): Promise<TemplateUpgradePlan>
+  apply(workspaceId: string, input: ApplyTemplateUpgradeInput): Promise<TemplateUpgradeResult>
+}
+
 // ==================== Context handed to factories ====================
 
 export interface WorkspaceToolContext {
@@ -157,6 +168,26 @@ export interface WorkspaceToolContext {
    *  it needs the live WorkspaceService (created after this center); the two
    *  build sites (cli.ts, mcp.ts) inject a lazy closure, tests may omit it. */
   resolveWorkspace?: (id: string) => { id: string; dir: string; tag: string } | null
+  /** Active-desk inventory for manager and peer-discovery flows. */
+  workspaceInventory?: () => Promise<readonly {
+    id: string
+    tag: string
+    template?: string
+    agents: readonly string[]
+    createdAt: string
+    sessions: {
+      total: number
+      running: number
+      recent: readonly {
+        resumeId: string
+        agent: string
+        title: string
+        state: 'running' | 'paused'
+        lastActiveAt: string
+      }[]
+    }
+    headlessRunning: number
+  }[]>
   /**
    * Return safe provenance an agent may use to follow up on an Inbox entry.
    * Older append-only entries can be enriched from live run/session registries
@@ -193,6 +224,8 @@ export interface WorkspaceToolContext {
     detail(wsId: string, id: string): Promise<IssueDetail | null>
     resolveByName(name: string): Promise<WikilinkIssueRef[]>
   }
+  /** Safe current-Workspace template preview/apply surface. */
+  templateUpgrades?: WorkspaceTemplateUpgradeControl
 }
 
 // ==================== Factory shape ====================

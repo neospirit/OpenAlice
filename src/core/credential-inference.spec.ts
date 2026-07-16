@@ -43,8 +43,8 @@ describe('resolveAnthropicAuthMode', () => {
     expect(resolveAnthropicAuthMode({ baseUrl: 'https://api.longcat.chat/anthropic' })).toBe('bearer')
   })
 
-  it('does NOT infer bearer for MiniMax China (minimaxi.com tolerates x-api-key)', () => {
-    expect(resolveAnthropicAuthMode({ baseUrl: 'https://api.minimaxi.com/anthropic' })).toBe('x-api-key')
+  it('infers the documented bearer mode for MiniMax China too', () => {
+    expect(resolveAnthropicAuthMode({ baseUrl: 'https://api.minimaxi.com/anthropic' })).toBe('bearer')
   })
 
   it('defaults to x-api-key for first-party Anthropic and unconfirmed gateways', () => {

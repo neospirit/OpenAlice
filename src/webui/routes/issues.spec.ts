@@ -17,7 +17,8 @@ import { detailIssue } from '../../workspaces/issues/board.js'
 import { readWorkspaceIssues } from '../../workspaces/issues/declaration.js'
 import { createIssue } from '../../workspaces/issues/mutate.js'
 import { readIssueComments } from '../../workspaces/issues/comments.js'
-import type { WorkspaceService } from '../../workspaces/service.js'
+import { IssueRetryError, type WorkspaceService } from '../../workspaces/service.js'
+import type { WorkspaceConversationControl } from '../../core/workspace-tool-center.js'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -34,6 +35,38 @@ afterEach(async () => {
 // just echoes whatever inboxReports it's handed.
 function build(inboxReports: InboxEntry[] = []) {
   const appendProvenance = vi.fn(async (input) => ({ id: 'p-1', ...input }))
+  const ask = vi.fn(async () => ({
+    status: 'dispatched' as const,
+    taskId: 'run-comment-reply',
+    resumeId: 'resume-kind-owl-abc123',
+    workspaceId: 'ws-1',
+    workspace: 'ws-1',
+    agent: 'codex',
+    resolution: {
+      mode: 'exact' as const,
+      origin: {
+        kind: 'session' as const,
+        workspaceId: 'ws-1',
+        resumeId: 'resume-kind-owl-abc123',
+        agent: 'codex',
+      },
+    },
+  }))
+  const conversation = { ask, read: vi.fn() } as unknown as WorkspaceConversationControl
+  const readDetail = async (wsId: string, id: string) => {
+    if (wsId !== 'ws-1') return null
+    const r = await readWorkspaceIssues(wsDir)
+    if (!r.ok) return null
+    const issue = r.issues.find((i) => i.id === id)
+    if (!issue) return null
+    const comments = await readIssueComments(wsDir, id)
+    return { issue: detailIssue(issue, null), comments: comments.ok ? comments.comments : [], runs: [], inboxReports, provenance: [], activity: [] }
+  }
+  const retryIssue = vi.fn(async (wsId: string, id: string) => {
+    const detail = await readDetail(wsId, id)
+    if (!detail) throw new IssueRetryError('not_found', 'Issue not found.')
+    return detail
+  })
   const svc = {
     registry: {
       get: (id: string) => (
@@ -56,18 +89,11 @@ function build(inboxReports: InboxEntry[] = []) {
           ? { resumeId, wsId: 'ws-1', agent: 'codex', createdAt: 1, updatedAt: 1 }
         : null,
     },
-    issueDetail: async (wsId: string, id: string) => {
-      if (wsId !== 'ws-1') return null
-      const r = await readWorkspaceIssues(wsDir)
-      if (!r.ok) return null
-      const issue = r.issues.find((i) => i.id === id)
-      if (!issue) return null
-      const comments = await readIssueComments(wsDir, id)
-      return { issue: detailIssue(issue, null), comments: comments.ok ? comments.comments : [], runs: [], inboxReports, provenance: [], activity: [] }
-    },
+    issueDetail: readDetail,
+    retryIssue,
     provenanceStore: { append: appendProvenance, list: vi.fn(), latest: vi.fn() },
   } as unknown as WorkspaceService
-  return { app: createIssuesRoutes(svc), appendProvenance }
+  return { app: createIssuesRoutes(svc, { conversation }), appendProvenance, retryIssue, ask }
 }
 
 async function req(app: any, method: string, path: string, body?: unknown) {
@@ -171,6 +197,15 @@ describe('PATCH /api/issues/:wsId/:id', () => {
       artifact: { kind: 'issue', workspaceId: 'ws-1', issueId: 'i1' },
       action: 'updated',
       origin: { kind: 'human' },
+      mutation: {
+        fields: expect.arrayContaining([
+          { field: 'status', before: 'todo', after: 'in_progress' },
+          { field: 'priority', before: 'none', after: 'high' },
+          { field: 'assignee', before: '@workspace', after: '@human' },
+          { field: 'runtime', after: 'pi' },
+          { field: 'what' },
+        ]),
+      },
     }), { coalesceWithinMs: 900000 })
   })
 
@@ -205,6 +240,29 @@ describe('GET /api/issues/:wsId/:id — inboxReports pass-through', () => {
   })
 })
 
+describe('POST /api/issues/:wsId/:id/retry', () => {
+  it('returns the authoritative detail with 202', async () => {
+    await createIssue(wsDir, { id: 'i1', title: 'T', when: { kind: 'every', every: '1h' } })
+    const { app, retryIssue } = build()
+    const r = await req(app, 'POST', '/ws-1/i1/retry')
+    expect(r.status).toBe(202)
+    expect(r.body.issue.id).toBe('i1')
+    expect(retryIssue).toHaveBeenCalledWith('ws-1', 'i1')
+  })
+
+  it('maps retry conflicts to an actionable response', async () => {
+    await createIssue(wsDir, { id: 'i1', title: 'T', when: { kind: 'every', every: '1h' } })
+    const { app, retryIssue } = build()
+    retryIssue.mockRejectedValueOnce(new IssueRetryError('already_running', 'This Issue already has a run in progress.'))
+    const r = await req(app, 'POST', '/ws-1/i1/retry')
+    expect(r.status).toBe(409)
+    expect(r.body).toEqual({
+      error: 'already_running',
+      message: 'This Issue already has a run in progress.',
+    })
+  })
+})
+
 describe('POST /api/issues/:wsId/:id/comments', () => {
   it('400 text_required for a blank comment', async () => {
     await createIssue(wsDir, { id: 'i1', title: 'T' })
@@ -231,5 +289,25 @@ describe('POST /api/issues/:wsId/:id/comments', () => {
       action: 'commented',
       origin: { kind: 'human' },
     }))
+  })
+
+  it('notifies the fixed owner and persists pending delivery without blocking the comment', async () => {
+    await createIssue(wsDir, {
+      id: 'i1',
+      title: 'T',
+      assignee: '@resume-kind-owl-abc123',
+    })
+    const { app, ask } = build()
+    const r = await req(app, 'POST', '/ws-1/i1/comments', { text: 'please explain' })
+    expect(r.status).toBe(200)
+    expect(ask).toHaveBeenCalledWith(expect.objectContaining({
+      target: { kind: 'resume', resumeId: 'resume-kind-owl-abc123' },
+      subject: expect.objectContaining({ kind: 'issue', issueId: 'i1', commentId: expect.any(String) }),
+    }))
+    expect(r.body.comments[0].delivery).toEqual({
+      state: 'pending',
+      targetResumeId: 'resume-kind-owl-abc123',
+      taskId: 'run-comment-reply',
+    })
   })
 })

@@ -6,8 +6,8 @@ import type { AgentInfo, AgentRuntimeReadinessSnapshot } from './workspace/api'
 const AGENT_WIRE_PREFERENCE: Record<string, WireShape[]> = {
   claude: ['anthropic'],
   codex: ['openai-responses'],
-  opencode: ['openai-chat', 'anthropic', 'openai-responses'],
-  pi: ['openai-chat', 'anthropic', 'openai-responses'],
+  opencode: ['google-generative-ai', 'openai-chat', 'anthropic', 'openai-responses'],
+  pi: ['google-generative-ai', 'openai-chat', 'anthropic', 'openai-responses'],
 }
 
 const LOGIN_RUNTIME_AGENTS = new Set(['claude', 'codex'])
@@ -73,7 +73,7 @@ export function buildFirstRunGuideModel(input: {
     const readiness = input.runtimeReadiness?.agents[agent.id] ?? null
     const installed = readiness?.installed ?? agent.installed !== false
     const compatibleCredentialCount = input.credentials.filter((credential) =>
-      (AGENT_WIRE_PREFERENCE[agent.id] ?? ['openai-chat', 'anthropic', 'openai-responses'])
+      (AGENT_WIRE_PREFERENCE[agent.id] ?? ['google-generative-ai', 'openai-chat', 'anthropic', 'openai-responses'])
         .some((shape) => shape in credential.wires),
     ).length
     const loginRuntime = LOGIN_RUNTIME_AGENTS.has(agent.id)

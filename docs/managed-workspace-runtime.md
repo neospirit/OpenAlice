@@ -25,9 +25,106 @@ removes the CLI/toolchain prerequisite; it does not bundle a model account or
 API key. User-installed Claude Code, Codex, opencode, or Pi remain supported as
 additional runtimes and may use their own subscription login or local config.
 
-Source/dev and Docker installs are different deployment shapes. They do not
-inherit the packaged desktop's managed-agent promise and may require an agent
-CLI to be installed in the host environment or image.
+Plain `pnpm dev` and Docker installs are different deployment shapes. They do
+not inherit the packaged desktop's managed-agent promise and may require an
+agent CLI in the host environment or image. The curl-installed CLI is a third
+shape: it installs the same pinned Pi version under the OpenAlice install root
+and injects `OPENALICE_MANAGED_PI_*` when it starts a source-backed Runtime. It
+still relies on host Node/npm and does not inherit Electron's managed
+Git/Bash/search-tool payload.
+
+### AI credential setup contract
+
+**Settings → AI Provider** is an account-to-runtime setup flow, not a generic
+bag of provider fields. The form must make these decisions explicit before a
+key can be saved:
+
+1. which provider account issued the API key (subscription logins remain in the
+   native Claude Code or Codex CLI);
+2. which region or endpoint owns that key;
+3. which Workspace Agent runtimes can consume the endpoint's declared API
+   protocol;
+4. which exact model ID to test and remember as the credential default; and
+5. whether that exact key + endpoint + protocol + model combination passes a
+   live connection probe.
+
+Provider presets own provider-specific key, region, and model guidance. Runtime
+compatibility is derived from the preset's wire map rather than duplicated as
+editorial copy. Protocol names and raw endpoints belong behind an advanced
+detail unless the user chose **Custom**, where protocol and base URL are
+required inputs. The managed credential path is key-bearing; keyless local
+servers and subscription auth stay in the native CLI's own configuration.
+
+Google Gemini credentials use the native `google-generative-ai` wire in Pi and
+the native Google provider in opencode. Google AI Studio now creates `AQ.`
+authorization keys by default; these and legacy `AIza` keys are sent as
+`x-goog-api-key`. Do not route the built-in Gemini preset through Google's
+OpenAI-compatibility endpoint, whose Bearer authentication does not reliably
+accept authorization keys. The credential probe must use the same native wire
+as the Workspace runtime and fail with an actionable timeout instead of leaving
+the form indefinitely in Testing state.
+
+A stored credential may declare more than one wire for the same key. Pi and
+opencode can consume native Google, Anthropic Messages, OpenAI Chat
+Completions, or OpenAI Responses; the per-Workspace editor must therefore let
+the user choose the protocol explicitly and write the matching Pi `api` or
+opencode `@ai-sdk/*` provider. Anthropic-wire credentials also carry their
+header mode through those adapters: first-party Anthropic uses `x-api-key`,
+while confirmed gateway endpoints can use `Authorization: Bearer` without also
+emitting a conflicting API-key header. Old Workspace defaults without an
+explicit protocol keep the runtime preference order for backward compatibility.
+
+**Settings → AI Provider → Default Workspace credentials** owns creation-time
+defaults only: per-agent credential, optional protocol, and the opencode/Pi
+context limit. The context default is 256K so users do not cross common
+higher-price tiers implicitly. Changing these settings never rewrites an
+existing Workspace; that Workspace's settings modal remains the explicit
+override surface.
+
+Quick Chat must summarize the launch configuration behind its credential pill:
+the effective model ID and context limit are visible before Send. For an
+existing Workspace these values come from its CLI-native config; selecting a
+different credential previews the model that credential will inject and the
+global context default. The adjacent adjustment action opens that Workspace's
+AI injector when a target exists, and falls back to AI Provider settings before
+the first Workspace has been created. Saving the Workspace modal refreshes this
+summary without requiring a page reload.
+
+Provider model catalogs are curated suggestions, not allowlists. Keep the
+free-text model field so a newly released or project-specific model remains
+usable before OpenAlice updates its catalog. Gemini suggestions should contain
+general-purpose text/tool models only; image, Live, TTS, embedding, and managed
+agent model IDs are different product surfaces and do not belong in Quick Chat.
+
+Keep subscription-backed CLI profiles distinct from API-key credentials.
+Claude Code subscription profiles should prefer its native aliases (`default`,
+`best`, `opus`, `sonnet`, `haiku`, and `opusplan`) so the CLI and account tier
+resolve current availability; Anthropic API credentials should suggest exact
+API model IDs. Codex subscription and OpenAI API catalogs may share a model
+family only when official documentation confirms both surfaces support it.
+
+Editing must round-trip the stored `lastModel` and any endpoint that no longer
+matches a current preset. A catalog refresh must never silently replace either
+value merely because the user opened and saved the form.
+
+Credential actions and the default-credential selectors must remain reachable
+without horizontal scrolling at the mobile shell breakpoint. In particular,
+long slugs, endpoint text, and runtime badges may wrap or truncate, but must not
+force Add, Edit, Delete, or selection controls outside the viewport.
+
+### Desktop data-location selection
+
+The desktop resolves the complete `OPENALICE_HOME` before acquiring runtime
+ownership or starting Alice/UTA. Fresh installs can choose a folder at startup;
+**Settings → General → Data location** can switch with a full restart, reopen a
+recent location, or ask on every launch. A duplicate-owner dialog can choose a
+different home instead of stopping the live instance.
+
+This launcher preference is stored under Electron `userData`, not inside the
+selected OpenAlice home and not inside portable `data/`. `OPENALICE_HOME` and
+`AQ_LAUNCHER_ROOT` environment overrides lock the desktop selector. Switching
+never copies or moves data. Follow [[docs/data-locations.md]] for precedence,
+concurrent-instance semantics, missing-drive behavior, and verification.
 
 ## Current Platform Payloads
 
@@ -170,23 +267,55 @@ remain at the OpenAlice/UTA boundary.
   `[managedPiNodePath, managedPiPath, ...args]` and writes the managed shell
   path into `.pi-agent/settings.json` during Windows Workspace bootstrap.
 
-The managed npm runtime is not added to `PATH` as a fake `pi` binary; the Pi
-adapter owns its explicit launch command. User-installed standalone Pi still
-uses the normal `pi` command path.
+The packaged Electron managed npm runtime is not added to `PATH` as a fake
+`pi` binary; the Pi adapter owns its explicit launch command. The curl
+installer additionally creates `<install-root>/bin/pi` as a direct launcher to
+the same immutable managed runtime while the `openalice` launcher still uses
+the explicit env contract. User-installed standalone Pi in plain source/dev
+continues to use the normal `pi` command path.
 
 Pi project trust follows the runtime boundary:
 
-- interactive sessions never receive `--approve`; Pi shows its trust prompt
-  and the user makes the project-resource decision;
+- before TUI or WebPi startup, the Pi adapter records a genuinely undecided
+  OpenAlice-managed Workspace in the trust store used by that Pi process. This
+  prevents a fresh Quick Chat from stalling behind a terminal-only trust
+  selector that WebPi cannot render;
+- an explicit saved allow or deny decision on the Workspace or its nearest
+  parent remains authoritative. OpenAlice never flips that decision;
+- interactive argv does not receive the version-sensitive `--approve` flag.
+  External Pi 0.78.x therefore remains launch-compatible while Pi 0.79+ reads
+  its normal `trust.json` state;
 - packaged headless sessions pass `--approve` because no user is present and
   OpenAlice controls the pinned managed Pi and Workspace contents;
-- source/dev headless sessions do not receive version-specific approval flags.
-  The Pi executable on `PATH`, its version, and its upgrade policy belong to
-  the contributor running `pnpm dev`.
+- plain `pnpm dev` headless sessions do not receive version-specific approval
+  flags. The Pi executable on `PATH`, its version, and its upgrade policy
+  belong to the contributor. A curl-installed CLI Runtime has an explicit
+  managed Pi path and therefore follows the pinned managed approval contract.
 
 Do not add external-Pi version probing or upgrade UX to preserve flags used by
 the packaged runtime. Compatibility for the packaged app is maintained by
 pinning and upgrading the bundled Pi with the OpenAlice release.
+
+When a Workspace has a `.pi-agent/` provider override, its trust file lives in
+that redirected agent directory. Otherwise OpenAlice updates Pi's normal agent
+directory; it must not create `.pi-agent/` solely for trust because doing so
+would hide the user's global Pi settings and extensions.
+
+### Codex interactive permissions
+
+OpenAlice launches interactive Codex TUI sessions with explicit
+`--sandbox danger-full-access --ask-for-approval never` arguments. This applies
+to fresh sessions, Quick Chat prompts, and resumed sessions. Launch-time flags
+are intentional: otherwise Codex may inherit a restrictive global or project
+default, silently sandbox the session, and prevent the injected `alice`,
+`alice-workspace`, `alice-uta`, and `traderhub` CLIs from reaching their local
+OpenAlice transport.
+
+Headless Codex remains narrower: it uses `approval_policy=never`, a
+workspace-write sandbox, and explicit loopback network access. That is enough
+for unattended Workspace CLI work without granting an automation run unrelated
+host access. Neither policy bypasses OpenAlice's trading boundary; broker writes
+and their approval rules remain enforced by UTA.
 
 ## Workspace Bootstrap and Skills
 

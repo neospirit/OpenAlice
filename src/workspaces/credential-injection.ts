@@ -7,7 +7,8 @@
  * adapter instead consumes a `WorkspaceAiCred` (`cli-adapter.ts`) and renders it
  * into its own file format. A credential carries no model — model is always a
  * per-use choice — so the caller supplies it (plus the adapter-specific
- * `authMode` / `wireApi` knobs) via `overrides`.
+ * `authMode` / `wireApi` knobs) via `overrides`. The vault's `lastModel` is a
+ * remembered default, not a lock; callers may still supply a per-use model.
  *
  * This is the one place that maps Credential → WorkspaceAiCred, used by
  * template-driven injection at workspace-create time and reusable by any future
@@ -15,7 +16,12 @@
  */
 
 import { resolveAnthropicAuthMode } from '@/core/credential-inference.js'
-import { credentialWires, type Credential, type CredentialWireShape } from '@/core/config.js'
+import {
+  credentialWires,
+  DEFAULT_WORKSPACE_CONTEXT_WINDOW,
+  type Credential,
+  type CredentialWireShape,
+} from '@/core/config.js'
 import { DEFAULT_MODEL_BY_VENDOR } from '@/ai-providers/preset-catalog.js'
 import type { AdapterRegistry, WorkspaceAiCred } from './cli-adapter.js'
 import type { Logger } from './logger.js'
@@ -30,15 +36,15 @@ import type { AgentCredentialDecl } from './template-registry.js'
 export const AGENT_WIRE_PREFERENCE: Record<string, CredentialWireShape[]> = {
   claude: ['anthropic'],
   codex: ['openai-responses'],
-  opencode: ['openai-chat', 'anthropic', 'openai-responses'],
-  pi: ['openai-chat', 'anthropic', 'openai-responses'],
+  opencode: ['google-generative-ai', 'openai-chat', 'anthropic', 'openai-responses'],
+  pi: ['google-generative-ai', 'openai-chat', 'anthropic', 'openai-responses'],
 }
 
 // Modern coding models are commonly sold as long-context runtimes. Pi defaults
 // unknown custom models to 128k and opencode defaults unknown limits to 0, so
 // new OpenAlice injections state the assumption explicitly while keeping the
 // field overridable from the workspace config UI.
-export const DEFAULT_CONTEXT_WINDOW = 1_000_000
+export const DEFAULT_CONTEXT_WINDOW = DEFAULT_WORKSPACE_CONTEXT_WINDOW
 
 /**
  * The subset of a credential vault an agent can actually be driven by: those
@@ -76,9 +82,9 @@ export function matchCredentialByApiKey(
 
 /**
  * The model to inject for a credential: its remembered `lastModel`, else the
- * vendor's catalog flagship, else null (custom creds with no history — let the
- * runtime decide). A credential never carries its own model, so this is the
- * single resolution point shared by quick-chat injection.
+ * vendor's catalog default, else null (custom creds with no history — let the
+ * runtime decide). This is the single resolution point shared by quick-chat
+ * injection; a Workspace may still override it for one use.
  */
 export function resolveInjectionModel(cred: Pick<Credential, 'vendor' | 'lastModel'>): string | null {
   return cred.lastModel ?? DEFAULT_MODEL_BY_VENDOR[cred.vendor] ?? null
@@ -88,8 +94,14 @@ export function resolveInjectionModel(cred: Pick<Credential, 'vendor' | 'lastMod
 export function pickAgentWire(
   wires: Partial<Record<CredentialWireShape, string>>,
   agentId: string,
+  requestedShape?: CredentialWireShape,
 ): { shape: CredentialWireShape; baseUrl: string } | null {
-  const pref = AGENT_WIRE_PREFERENCE[agentId] ?? ['openai-chat', 'anthropic', 'openai-responses']
+  const pref = AGENT_WIRE_PREFERENCE[agentId]
+    ?? ['google-generative-ai', 'openai-chat', 'anthropic', 'openai-responses']
+  if (requestedShape !== undefined) {
+    if (!pref.includes(requestedShape) || !(requestedShape in wires)) return null
+    return { shape: requestedShape, baseUrl: wires[requestedShape] ?? '' }
+  }
   for (const shape of pref) {
     if (shape in wires) return { shape, baseUrl: wires[shape] ?? '' }
   }
@@ -99,9 +111,11 @@ export function pickAgentWire(
 export interface CredentialInjectionOverrides {
   /** Model id to run. Required in practice (a credential has none). */
   model?: string
-  /** Context window to write for custom-model runtimes; defaults to 1M for opencode/Pi. */
+  /** Explicit protocol when a credential exposes several agent-compatible wires. */
+  wireShape?: CredentialWireShape
+  /** Context window to write for custom-model runtimes; defaults to 256K for opencode/Pi. */
   contextWindow?: number | null
-  /** Claude only — which header carries the key. Defaults via baseUrl heuristic. */
+  /** Anthropic wire only — which header carries the key. Defaults via baseUrl heuristic. */
   authMode?: 'x-api-key' | 'bearer'
   /** Codex only — Responses vs Chat Completions. Adapter defaults to 'chat'. */
   wireApi?: 'chat' | 'responses'
@@ -119,7 +133,7 @@ export function credentialToWorkspaceAiCred(
   overrides: CredentialInjectionOverrides = {},
 ): WorkspaceAiCred | null {
   const wires = credentialWires(credential as Credential)
-  const picked = pickAgentWire(wires, agentId)
+  const picked = pickAgentWire(wires, agentId, overrides.wireShape)
   if (!picked) return null
 
   const cred: WorkspaceAiCred = {
@@ -135,12 +149,13 @@ export function credentialToWorkspaceAiCred(
     cred.contextWindow = overrides.contextWindow ?? DEFAULT_CONTEXT_WINDOW
   }
 
-  if (agentId === 'claude') {
+  if (picked.shape === 'anthropic') {
     cred.authMode = resolveAnthropicAuthMode({
       authMode: overrides.authMode,
       baseUrl: picked.baseUrl,
     })
-  } else if (agentId === 'codex') {
+  }
+  if (agentId === 'codex') {
     if (overrides.wireApi) cred.wireApi = overrides.wireApi
   }
 
@@ -167,6 +182,7 @@ export async function injectWorkspaceCredentials(opts: {
   readonly adapterRegistry: AdapterRegistry
   readonly credentials: Record<string, Credential>
   readonly logger: Logger
+  readonly defaultContextWindow?: number
 }): Promise<void> {
   const { dir, agents, agentCredentials, adapterRegistry, credentials, logger } = opts
   for (const [agentId, decl] of Object.entries(agentCredentials)) {
@@ -188,6 +204,12 @@ export async function injectWorkspaceCredentials(opts: {
     }
     const wsCred = credentialToWorkspaceAiCred(credential, agentId, {
       ...(decl.model !== undefined ? { model: decl.model } : {}),
+      ...(decl.wireShape !== undefined ? { wireShape: decl.wireShape } : {}),
+      ...(decl.contextWindow !== undefined
+        ? { contextWindow: decl.contextWindow }
+        : opts.defaultContextWindow !== undefined
+          ? { contextWindow: opts.defaultContextWindow }
+          : {}),
       ...(decl.authMode !== undefined ? { authMode: decl.authMode } : {}),
       ...(decl.wireApi !== undefined ? { wireApi: decl.wireApi } : {}),
     })

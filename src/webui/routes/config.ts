@@ -3,14 +3,16 @@ import {
   loadConfig, writeConfigSection, validSections,
   readCredentials, addCredential, deleteCredential, writeCredential, resolveCredential,
   credentialWires,
-  readWorkspaceCredentialDefaults, writeWorkspaceCredentialDefaults,
+  readWorkspaceCredentialDefaults, writeWorkspaceCreationDefaults,
+  readWorkspaceDefaultContextWindow, workspaceContextWindowSchema,
   readIssueDefaultAgent, writeIssueDefaultAgent,
   readWorkspaceDefaultAgent, writeWorkspaceDefaultAgent,
   credentialVendorEnum, credentialWireShapeEnum,
   type ConfigSection, type Credential, type CredentialWireShape,
   type WorkspaceCredentialDefault,
+  type WorkspaceContextWindow,
 } from '../../core/config.js'
-import { compatibleCredentials } from '../../workspaces/credential-injection.js'
+import { compatibleCredentials, pickAgentWire } from '../../workspaces/credential-injection.js'
 
 /** Validate a `{ [wireShape]: baseUrl }` body into a typed wires map. */
 function parseWires(raw: unknown): Partial<Record<CredentialWireShape, string>> {
@@ -114,6 +116,7 @@ export function createConfigRoutes(opts?: ConfigRouteOpts) {
         wires: credentialWires(cred), // derives from legacy {baseUrl,wireShape} too
         apiKey: cred.apiKey ?? null,
         hasApiKey: !!cred.apiKey,
+        ...(cred.lastModel ? { lastModel: cred.lastModel } : {}),
       }))
       return c.json({ credentials: list })
     } catch (err) {
@@ -164,6 +167,15 @@ export function createConfigRoutes(opts?: ConfigRouteOpts) {
         ...(apiKey ? { apiKey } : {}),
         ...(Object.keys(wires).length ? { wires } : { ...(existing.wires ? { wires: existing.wires } : {}) }),
         ...(lastModel ? { lastModel } : {}),
+      }
+      const defaults = await readWorkspaceCredentialDefaults()
+      for (const [agentId, def] of Object.entries(defaults)) {
+        if (def.credentialSlug !== slug) continue
+        if (!pickAgentWire(credentialWires(cred), agentId, def.wireShape)) {
+          return c.json({
+            error: `This credential is the ${agentId} Workspace default. Choose a compatible default protocol before removing its current wire.`,
+          }, 400)
+        }
       }
       await writeCredential(slug, cred)
       return c.json({ slug })
@@ -227,15 +239,16 @@ export function createConfigRoutes(opts?: ConfigRouteOpts) {
    */
   app.get('/workspace-credential-defaults', async (c) => {
     try {
-      const [defaults, creds] = await Promise.all([
+      const [defaults, creds, contextWindow] = await Promise.all([
         readWorkspaceCredentialDefaults(),
         readCredentials(),
+        readWorkspaceDefaultContextWindow(),
       ])
       const compatibleByAgent: Record<string, string[]> = {}
       for (const agent of DEFAULTABLE_AGENTS) {
         compatibleByAgent[agent] = compatibleCredentials(creds, agent).map(([slug]) => slug)
       }
-      return c.json({ defaults, compatibleByAgent })
+      return c.json({ defaults, compatibleByAgent, contextWindow })
     } catch (err) {
       return c.json({ error: String(err) }, 500)
     }
@@ -248,20 +261,38 @@ export function createConfigRoutes(opts?: ConfigRouteOpts) {
    */
   app.put('/workspace-credential-defaults', async (c) => {
     try {
-      const body = await c.req.json<{ defaults?: Record<string, WorkspaceCredentialDefault> }>()
+      const body = await c.req.json<{
+        defaults?: Record<string, WorkspaceCredentialDefault>
+        contextWindow?: WorkspaceContextWindow
+      }>()
+      const contextWindow = workspaceContextWindowSchema.parse(
+        body.contextWindow ?? await readWorkspaceDefaultContextWindow(),
+      )
+      const credentials = await readCredentials()
       const incoming = body.defaults ?? {}
       const next: Record<string, WorkspaceCredentialDefault> = {}
       for (const agent of DEFAULTABLE_AGENTS) {
         const def = incoming[agent]
         if (def && typeof def.credentialSlug === 'string' && def.credentialSlug) {
+          const parsedWire = credentialWireShapeEnum.safeParse(def.wireShape)
+          if (def.wireShape !== undefined && !parsedWire.success) {
+            return c.json({ error: `Invalid protocol for ${agent}` }, 400)
+          }
+          if (parsedWire.success) {
+            const credential = credentials[def.credentialSlug]
+            if (credential && !pickAgentWire(credentialWires(credential), agent, parsedWire.data)) {
+              return c.json({ error: `${agent} cannot use ${parsedWire.data} from ${def.credentialSlug}` }, 400)
+            }
+          }
           next[agent] = {
             credentialSlug: def.credentialSlug,
             ...(typeof def.model === 'string' && def.model ? { model: def.model } : {}),
+            ...(parsedWire.success ? { wireShape: parsedWire.data } : {}),
           }
         }
       }
-      await writeWorkspaceCredentialDefaults(next)
-      return c.json({ defaults: next })
+      await writeWorkspaceCreationDefaults(next, contextWindow)
+      return c.json({ defaults: next, contextWindow })
     } catch (err) {
       return c.json({ error: String(err) }, 400)
     }
@@ -336,8 +367,7 @@ export function createConfigRoutes(opts?: ConfigRouteOpts) {
       }
       // marketData edits are picked up lazily by the provider resolver
       // (it reads ctx.config per request), so no explicit hot-reload hook
-      // is needed. The old connector hot-reload path was removed with the
-      // legacy connector cluster.
+      // is needed. Connector Service owns its own restart flag and API.
       return c.json(validated)
     } catch (err) {
       if (err instanceof Error && err.name === 'ZodError') {

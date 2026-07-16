@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
-import { rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { homedir } from 'node:os';
+import { mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import { dirname, join, resolve } from 'node:path';
 
 import { runtimeProfileFromEnv } from '@/core/runtime-profile.js';
 import { resolveBashPath } from '@/core/shell-resolver.js';
@@ -21,6 +22,9 @@ const PI_AGENT_DIR = '.pi-agent';
 const PI_MODELS_PATH = `${PI_AGENT_DIR}/models.json`;
 const PI_SETTINGS_PATH = `${PI_AGENT_DIR}/settings.json`;
 const PI_PROVIDER_NAME = 'workspace';
+const PI_TRUST_FILENAME = 'trust.json';
+
+let piTrustWriteQueue: Promise<void> = Promise.resolve();
 
 function positiveNumber(value: number | null | undefined): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
@@ -61,6 +65,104 @@ export async function syncPiWindowsShellPath(
     PI_SETTINGS_PATH,
     JSON.stringify({ ...settings, shellPath }, null, 2) + '\n',
   );
+}
+
+/**
+ * OpenAlice Workspaces are created, registered, and launched through the
+ * Workspace service. Pi 0.79+ otherwise stops its first interactive launch at
+ * a project-resource trust selector because OpenAlice injects `.agents/skills`.
+ * Record the managed Workspace as trusted before either the TUI or WebPi RPC
+ * process starts, while preserving any explicit trust/no-trust decision the
+ * user already saved for this directory or one of its parents.
+ *
+ * Pi uses the redirected `.pi-agent` directory whenever a Workspace credential
+ * is installed; without that override it uses the user's normal agent dir.
+ * Writing to the directory Pi will actually read avoids creating `.pi-agent`
+ * just for trust (which would accidentally hide the user's global Pi config).
+ */
+export async function syncPiProjectTrust(
+  cwd: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<void> {
+  const run = async (): Promise<void> => {
+    const workspaceAgentDir = join(cwd, PI_AGENT_DIR);
+    const configuredAgentDir = env['PI_CODING_AGENT_DIR']?.trim();
+    const agentDir = existsSync(workspaceAgentDir)
+      ? workspaceAgentDir
+      : configuredAgentDir
+        ? resolve(configuredAgentDir)
+        : join(resolve(env['HOME']?.trim() || homedir()), '.pi', 'agent');
+    const trustPath = join(agentDir, PI_TRUST_FILENAME);
+    const canonicalCwd = await realpath(cwd).catch(() => resolve(cwd));
+    const trust = await readPiTrustFile(trustPath);
+    if (trust === null) return;
+
+    // Pi applies the nearest saved parent decision. Respect an explicit yes or
+    // no; only fill the genuinely undecided first-run case.
+    if (nearestPiTrustDecision(trust, canonicalCwd) !== null) return;
+    trust[canonicalCwd] = true;
+
+    await mkdir(agentDir, { recursive: true });
+    const tempPath = `${trustPath}.openalice-${process.pid}`;
+    await writeFile(tempPath, `${JSON.stringify(sortPiTrust(trust), null, 2)}\n`, {
+      encoding: 'utf8',
+      mode: 0o600,
+    });
+    await rename(tempPath, trustPath);
+  };
+
+  // Several Workspaces can bootstrap concurrently. Serialize read/merge/write
+  // inside this process so one Workspace never drops another's trust entry.
+  const queued = piTrustWriteQueue.then(run, run);
+  piTrustWriteQueue = queued.catch(() => undefined);
+  await queued;
+}
+
+async function readPiTrustFile(path: string): Promise<Record<string, boolean | null> | null> {
+  let raw: string;
+  try {
+    raw = await readFile(path, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {};
+    throw error;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw) as unknown;
+  } catch {
+    // Pi owns this file. Preserve malformed/user-edited contents and let Pi
+    // surface its own recovery path instead of replacing them during launch.
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return null;
+  }
+  const trust: Record<string, boolean | null> = {};
+  for (const [key, value] of Object.entries(parsed)) {
+    if (value !== true && value !== false && value !== null) {
+      return null;
+    }
+    trust[key] = value;
+  }
+  return trust;
+}
+
+function nearestPiTrustDecision(
+  trust: Readonly<Record<string, boolean | null>>,
+  cwd: string,
+): boolean | null {
+  let candidate = cwd;
+  while (true) {
+    const decision = trust[candidate];
+    if (decision === true || decision === false) return decision;
+    const parent = dirname(candidate);
+    if (parent === candidate) return null;
+    candidate = parent;
+  }
+}
+
+function sortPiTrust(trust: Readonly<Record<string, boolean | null>>): Record<string, boolean | null> {
+  return Object.fromEntries(Object.entries(trust).sort(([a], [b]) => a.localeCompare(b)));
 }
 
 function piHeadlessApproveArgs(env: Readonly<Record<string, string | undefined>>): readonly string[] {
@@ -127,16 +229,16 @@ export const piAdapter: CliAdapter = {
   // credential rewrite. The helper returns before I/O on every other OS.
   async bootstrap({ cwd }): Promise<void> {
     await syncPiWindowsShellPath(cwd);
+    await syncPiProjectTrust(cwd);
   },
 
   composeCommand(_base: readonly string[], ctx: SpawnContext): readonly string[] {
     // Tools come from the CLI-injection path (alice on PATH + shared
     // .agents/skills), not flags — so the command head is just the binary + a
     // resume flag (if any).
-    // Pi 0.79+ asks the user to trust project-local resources on interactive
-    // startup. Do not answer that security decision for them: the prompt makes
-    // the `.agents/skills` boundary visible, and omitting the flag also keeps
-    // external Pi 0.78.x runtimes (which predate `--approve`) compatible.
+    // `bootstrap()` records trust for this OpenAlice-managed Workspace before
+    // every launch. Keeping argv free of `--approve` preserves compatibility
+    // with external Pi 0.78.x runtimes that predate the flag.
     const head = [...piCommandHead(ctx.env)];
     // Quick-chat seed: `pi [--session-id <id>] <messages…>` opens the
     // interactive TUI seeded with that first message. UNLIKE the other adapters,
@@ -165,7 +267,9 @@ export const piAdapter: CliAdapter = {
     }
     return [
       ...piCommandHead(ctx.env),
-      ...piHeadlessApproveArgs(ctx.env),
+      ...(ctx.approveProject ? ['--approve'] : piHeadlessApproveArgs(ctx.env)),
+      ...(ctx.appendSystemPrompt ? ['--append-system-prompt', ctx.appendSystemPrompt] : []),
+      ...(ctx.skills ?? []).flatMap((path) => ['--skill', path]),
       '--session-id',
       ctx.resume.sessionId,
       '--mode',
@@ -175,9 +279,9 @@ export const piAdapter: CliAdapter = {
 
   // Headless: `pi -p <prompt>` is non-interactive and exits at the turn
   // boundary, so there is nobody to answer Pi 0.79+'s project-trust prompt.
-  // The packaged app explicitly approves its pinned managed Pi; contributor
-  // dev leaves its external Pi untouched. Interactive sessions above always
-  // leave the decision to the user. NOTE: pi
+  // Bootstrap records a missing trust decision for every OpenAlice-managed
+  // Workspace. The packaged app additionally approves its pinned managed Pi;
+  // contributor dev leaves its external Pi argv untouched. NOTE: pi
   // REJECTS a `--` end-of-options terminator ("Unknown option: --", verified
   // 0.78.1), so the prompt is a bare trailing positional — a prompt literally
   // starting with `-`/`--` is unprotected on pi (rare for task prompts).
@@ -329,9 +433,10 @@ export const piAdapter: CliAdapter = {
       return;
     }
 
-    // Pi's `api` field is the wire shape: anthropic-messages / openai-responses /
-    // openai-completions (Chat Completions, the default for CN/local gateways).
+    // Pi's `api` field is the wire shape: anthropic-messages /
+    // google-generative-ai / openai-responses / openai-completions.
     const api = cred.wireShape === 'anthropic' ? 'anthropic-messages'
+      : cred.wireShape === 'google-generative-ai' ? 'google-generative-ai'
       : cred.wireShape === 'openai-responses' ? 'openai-responses'
       : 'openai-completions';
     const provider: Record<string, unknown> = {
@@ -341,7 +446,15 @@ export const piAdapter: CliAdapter = {
     if (cred.baseUrl) provider['baseUrl'] = cred.baseUrl;
     // Key written directly into the workspace file (same trust model as codex's
     // .codex/env.json / opencode's opencode.json).
-    if (cred.apiKey) provider['apiKey'] = cred.apiKey;
+    if (cred.apiKey) {
+      if (cred.wireShape === 'anthropic' && cred.authMode === 'bearer') {
+        // Pi supports literal provider headers. Store only Authorization so its
+        // Anthropic transport does not also synthesize x-api-key from apiKey.
+        provider['headers'] = { Authorization: `Bearer ${cred.apiKey}` };
+      } else {
+        provider['apiKey'] = cred.apiKey;
+      }
+    }
     // Pi's custom model registry otherwise falls back to 128k. OpenAlice writes
     // the context window when known so long-context models do not compact early.
     if (cred.model) {
@@ -385,7 +498,14 @@ export const piAdapter: CliAdapter = {
     const providers = (parsed['providers'] ?? {}) as Record<string, unknown>;
     const p = (providers[PI_PROVIDER_NAME] ?? {}) as Record<string, unknown>;
     const baseUrl = typeof p['baseUrl'] === 'string' ? (p['baseUrl'] as string) : null;
-    const apiKey = typeof p['apiKey'] === 'string' ? (p['apiKey'] as string) : null;
+    const headers = (p['headers'] ?? {}) as Record<string, unknown>;
+    const authorization = typeof headers['Authorization'] === 'string'
+      ? headers['Authorization']
+      : typeof headers['authorization'] === 'string'
+        ? headers['authorization']
+        : null;
+    const bearerKey = authorization?.match(/^Bearer\s+(.+)$/i)?.[1] ?? null;
+    const apiKey = typeof p['apiKey'] === 'string' ? (p['apiKey'] as string) : bearerKey;
     const models = Array.isArray(p['models']) ? (p['models'] as Array<Record<string, unknown>>) : [];
     const first = models[0];
     const model = first && typeof first['id'] === 'string' ? (first['id'] as string) : null;
@@ -394,8 +514,16 @@ export const piAdapter: CliAdapter = {
     // Reverse the `api` field back to the wire shape.
     const api = p['api'];
     const wireShape = api === 'anthropic-messages' ? 'anthropic' as const
+      : api === 'google-generative-ai' ? 'google-generative-ai' as const
       : api === 'openai-responses' ? 'openai-responses' as const
       : 'openai-chat' as const;
-    return { baseUrl, apiKey, model, wireShape, ...(contextWindow ? { contextWindow } : {}) };
+    return {
+      baseUrl,
+      apiKey,
+      model,
+      wireShape,
+      ...(wireShape === 'anthropic' ? { authMode: bearerKey ? 'bearer' as const : 'x-api-key' as const } : {}),
+      ...(contextWindow ? { contextWindow } : {}),
+    };
   },
 };

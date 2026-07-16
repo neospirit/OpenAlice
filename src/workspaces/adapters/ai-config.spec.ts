@@ -6,16 +6,16 @@
  */
 
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { claudeAdapter } from './claude.js';
 import { codexAdapter } from './codex.js';
 import { opencodeAdapter } from './opencode.js';
-import { piAdapter, syncPiWindowsShellPath } from './pi.js';
+import { piAdapter, syncPiProjectTrust, syncPiWindowsShellPath } from './pi.js';
 
 let dir: string;
 
@@ -103,6 +103,10 @@ describe('codexAdapter AI-config', () => {
       },
     })).toEqual([
       'codex',
+      '--sandbox',
+      'danger-full-access',
+      '--ask-for-approval',
+      'never',
       '-c',
       'mcp_servers.openalice.url="http://127.0.0.1:47332/mcp"',
       '-c',
@@ -117,6 +121,10 @@ describe('codexAdapter AI-config', () => {
     };
     expect(codexAdapter.composeCommand([], { cwd: dir, env, resume: 'last' })).toEqual([
       'codex',
+      '--sandbox',
+      'danger-full-access',
+      '--ask-for-approval',
+      'never',
       '-c',
       'mcp_servers.openalice.url="http://127.0.0.1:47332/mcp"',
       '-c',
@@ -126,12 +134,26 @@ describe('codexAdapter AI-config', () => {
     ]);
     expect(codexAdapter.composeCommand([], { cwd: dir, env, resume: { sessionId: 'rollout-id' } })).toEqual([
       'codex',
+      '--sandbox',
+      'danger-full-access',
+      '--ask-for-approval',
+      'never',
       '-c',
       'mcp_servers.openalice.url="http://127.0.0.1:47332/mcp"',
       '-c',
       'mcp_servers.openalice-workspace.url="http://127.0.0.1:47332/mcp/ws-abc"',
       'resume',
       'rollout-id',
+    ]);
+  });
+
+  it('keeps explicit full access when interactive Codex runs without MCP', () => {
+    expect(codexAdapter.composeCommand([], { cwd: dir, env: {} })).toEqual([
+      'codex',
+      '--sandbox',
+      'danger-full-access',
+      '--ask-for-approval',
+      'never',
     ]);
   });
 
@@ -242,11 +264,34 @@ describe('opencodeAdapter AI-config', () => {
     });
   });
 
-  it('honors wireShape — anthropic → @ai-sdk/anthropic, responses → @ai-sdk/openai', async () => {
+  it('honors wireShape — Anthropic, Google, and OpenAI Responses use their native SDKs', async () => {
     await opencodeAdapter.writeAiConfig!(dir, { baseUrl: 'https://x/anthropic', apiKey: 'k', model: 'glm-5.1', wireShape: 'anthropic' });
     expect(JSON.parse(await read('opencode.json')).provider.workspace.npm).toBe('@ai-sdk/anthropic');
+    await opencodeAdapter.writeAiConfig!(dir, { baseUrl: 'https://x/google', apiKey: 'AQ.k', model: 'gemini', wireShape: 'google-generative-ai' });
+    expect(JSON.parse(await read('opencode.json')).provider.workspace.npm).toBe('@ai-sdk/google');
+    expect((await opencodeAdapter.readAiConfig!(dir))?.wireShape).toBe('google-generative-ai');
     await opencodeAdapter.writeAiConfig!(dir, { baseUrl: 'https://x/v1', apiKey: 'k', model: 'gpt-5.5', wireShape: 'openai-responses' });
     expect(JSON.parse(await read('opencode.json')).provider.workspace.npm).toBe('@ai-sdk/openai');
+  });
+
+  it('writes Anthropic bearer auth without a conflicting x-api-key and round-trips it', async () => {
+    await opencodeAdapter.writeAiConfig!(dir, {
+      baseUrl: 'https://api.minimax.io/anthropic',
+      apiKey: 'mm-key',
+      model: 'MiniMax-M3',
+      wireShape: 'anthropic',
+      authMode: 'bearer',
+    });
+    const options = JSON.parse(await read('opencode.json')).provider.workspace.options;
+    expect(options).toEqual({
+      baseURL: 'https://api.minimax.io/anthropic',
+      headers: { Authorization: 'Bearer mm-key' },
+    });
+    expect(await opencodeAdapter.readAiConfig!(dir)).toMatchObject({
+      apiKey: 'mm-key',
+      wireShape: 'anthropic',
+      authMode: 'bearer',
+    });
   });
 
   it('reset (empty cred) deletes opencode.json', async () => {
@@ -387,6 +432,45 @@ describe('composeHeadlessCommand (one-shot headless argv, prompt placed per-CLI)
 describe('piAdapter AI-config', () => {
   const mcpEnv = { OPENALICE_MCP_URL: 'http://127.0.0.1:47332/mcp', AQ_WS_ID: 'ws-abc' };
 
+  it('records a new OpenAlice workspace in Pi global trust without forcing agent-dir redirection', async () => {
+    const home = join(dir, 'home');
+    await syncPiProjectTrust(dir, { HOME: home });
+    const canonicalDir = await realpath(dir);
+
+    expect(JSON.parse(await readFile(join(home, '.pi/agent/trust.json'), 'utf8'))).toEqual({
+      [canonicalDir]: true,
+    });
+    expect(piAdapter.composeEnv!({ cwd: dir, env: { HOME: home } })).toEqual({});
+  });
+
+  it('writes trust beside a workspace provider and preserves an explicit parent refusal', async () => {
+    await mkdir(join(dir, '.pi-agent'), { recursive: true });
+    await syncPiProjectTrust(dir, { HOME: join(dir, 'unused-home') });
+    const canonicalDir = await realpath(dir);
+    expect(JSON.parse(await read('.pi-agent/trust.json'))).toEqual({ [canonicalDir]: true });
+
+    const parent = dirname(canonicalDir);
+    const refused = join(dir, 'refused');
+    await mkdir(refused, { recursive: true });
+    const home = join(dir, 'refused-home');
+    await mkdir(join(home, '.pi/agent'), { recursive: true });
+    await writeFile(join(home, '.pi/agent/trust.json'), JSON.stringify({ [parent]: false }));
+    await syncPiProjectTrust(refused, { HOME: home });
+    expect(JSON.parse(await readFile(join(home, '.pi/agent/trust.json'), 'utf8'))).toEqual({
+      [parent]: false,
+    });
+  });
+
+  it('preserves a malformed Pi-owned trust store instead of blocking launch or overwriting it', async () => {
+    const home = join(dir, 'malformed-home');
+    const trustPath = join(home, '.pi/agent/trust.json');
+    await mkdir(dirname(trustPath), { recursive: true });
+    await writeFile(trustPath, '{ user is repairing this');
+
+    await expect(syncPiProjectTrust(dir, { HOME: home })).resolves.toBeUndefined();
+    expect(await readFile(trustPath, 'utf8')).toBe('{ user is repairing this');
+  });
+
   it('composeCommand leaves project trust to Pi and the user', () => {
     expect(piAdapter.composeCommand(['ignored'], { cwd: dir, env: mcpEnv })).toEqual(['pi']);
     expect(piAdapter.composeCommand([], { cwd: dir, env: mcpEnv, resume: 'last' }))
@@ -400,6 +484,25 @@ describe('piAdapter AI-config', () => {
     expect(piAdapter.composeCommand([], spawn)).toEqual(['pi', '--session-id', 'sess-web']);
     expect(piAdapter.composeWebCommand?.([], spawn)).toEqual([
       'pi', '--session-id', 'sess-web', '--mode', 'rpc',
+    ]);
+  });
+
+  it('composeWebCommand can explicitly load the launcher manager contract', () => {
+    const spawn = {
+      cwd: dir,
+      env: mcpEnv,
+      resume: { sessionId: 'sess-manager' },
+      approveProject: true,
+      appendSystemPrompt: 'Manage the office floor.',
+      skills: ['/repo/default/skills/workspace-manager'],
+    } as const;
+    expect(piAdapter.composeWebCommand?.([], spawn)).toEqual([
+      'pi',
+      '--approve',
+      '--append-system-prompt', 'Manage the office floor.',
+      '--skill', '/repo/default/skills/workspace-manager',
+      '--session-id', 'sess-manager',
+      '--mode', 'rpc',
     ]);
   });
 
@@ -527,11 +630,32 @@ describe('piAdapter AI-config', () => {
     ]);
   });
 
-  it('honors wireShape — anthropic → anthropic-messages, responses → openai-responses', async () => {
+  it('honors wireShape — Anthropic, Google, and OpenAI Responses use native Pi APIs', async () => {
     await piAdapter.writeAiConfig!(dir, { baseUrl: 'https://x/anthropic', apiKey: 'k', model: 'glm-5.1', wireShape: 'anthropic' });
     expect(JSON.parse(await read('.pi-agent/models.json')).providers.workspace.api).toBe('anthropic-messages');
+    await piAdapter.writeAiConfig!(dir, { baseUrl: 'https://x/google', apiKey: 'AQ.k', model: 'gemini', wireShape: 'google-generative-ai' });
+    expect(JSON.parse(await read('.pi-agent/models.json')).providers.workspace.api).toBe('google-generative-ai');
+    expect((await piAdapter.readAiConfig!(dir))?.wireShape).toBe('google-generative-ai');
     await piAdapter.writeAiConfig!(dir, { baseUrl: 'https://x/v1', apiKey: 'k', model: 'gpt-5.5', wireShape: 'openai-responses' });
     expect(JSON.parse(await read('.pi-agent/models.json')).providers.workspace.api).toBe('openai-responses');
+  });
+
+  it('writes Anthropic bearer auth without a conflicting apiKey and round-trips it', async () => {
+    await piAdapter.writeAiConfig!(dir, {
+      baseUrl: 'https://api.minimaxi.com/anthropic',
+      apiKey: 'mm-key',
+      model: 'MiniMax-M3',
+      wireShape: 'anthropic',
+      authMode: 'bearer',
+    });
+    const provider = JSON.parse(await read('.pi-agent/models.json')).providers.workspace;
+    expect(provider.apiKey).toBeUndefined();
+    expect(provider.headers).toEqual({ Authorization: 'Bearer mm-key' });
+    expect(await piAdapter.readAiConfig!(dir)).toMatchObject({
+      apiKey: 'mm-key',
+      wireShape: 'anthropic',
+      authMode: 'bearer',
+    });
   });
 
   it('reset (empty cred) tears down the entire .pi-agent/ directory', async () => {

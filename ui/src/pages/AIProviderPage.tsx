@@ -16,14 +16,24 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { api, type Preset, type WireShape } from '../api'
-import type { CredentialSummary, WorkspaceCredentialDefaultsResponse } from '../api/config'
+import type {
+  CredentialSummary,
+  WorkspaceContextWindow,
+  WorkspaceCredentialDefault,
+  WorkspaceCredentialDefaultsResponse,
+} from '../api/config'
 import { PageHeader } from '../components/PageHeader'
 import { PageLoading, Skeleton } from '../components/StateViews'
 import { inputClass } from '../components/form'
 import { CredentialModal } from '../components/credentials/CredentialModal'
-import { WIRE_SHAPE_SHORT, isApiKeyPreset } from '../lib/presetHelpers'
-
-const SHAPE_ORDER: WireShape[] = ['anthropic', 'openai-chat', 'openai-responses']
+import {
+  AGENT_LABELS,
+  WIRE_SHAPE_GUIDANCE,
+  agentWireShapes,
+  compatibleAgentIds,
+  isApiKeyPreset,
+} from '../lib/presetHelpers'
+import { notifyWorkspaceDefaultsChanged } from '../lib/workspaceAiEvents'
 
 function credentialLabel(cred: Pick<CredentialSummary, 'slug' | 'vendor' | 'label'>): string {
   return cred.label?.trim() || cred.slug
@@ -75,7 +85,7 @@ const AGENT_RUNTIMES: RuntimeInfo[] = [
     name: 'Pi',
     blurb: 'Minimal open-source agent CLI (earendil-works/pi) — unified multi-provider API.',
     facts: [
-      ['Models', 'OpenAI, Anthropic, Google + custom (Ollama, vLLM, LM Studio, proxies); OpenAI-compatible and anthropic-messages wires'],
+      ['Models', 'OpenAI, Anthropic, Google + custom (Ollama, vLLM, LM Studio, proxies); native Gemini, OpenAI-compatible, and Anthropic wires'],
       ['Auth', 'Per-provider API key'],
     ],
   },
@@ -109,7 +119,7 @@ export function AIProviderPage() {
   if (!credentials) {
     return (
       <div className="flex flex-col flex-1 min-h-0">
-        <PageHeader title="AI Provider" description="Credentials Alice holds and injects into workspaces." />
+        <PageHeader title="AI Provider" description="Provider accounts and model defaults Alice can inject into workspaces." />
         <PageLoading />
       </div>
     )
@@ -117,11 +127,11 @@ export function AIProviderPage() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
-      <PageHeader title="AI Provider" description="Credentials Alice holds and injects into workspaces." />
+      <PageHeader title="AI Provider" description="Provider accounts and model defaults Alice can inject into workspaces." />
       <div className="flex-1 overflow-y-auto px-4 md:px-8 py-6">
-        <div className="max-w-[1100px] mx-auto grid gap-6 lg:grid-cols-2">
+        <div className="max-w-[1100px] min-w-0 mx-auto grid gap-6 lg:grid-cols-2">
           {/* ============== Credentials ============== */}
-          <section>
+          <section className="min-w-0">
             <div className="rounded-lg border border-border/50 bg-bg-secondary/50 px-4 py-3 mb-4">
               <p className="text-[13px] text-text-muted leading-relaxed">
                 The API keys Alice keeps centrally. Templates inject them into new
@@ -143,40 +153,47 @@ export function AIProviderPage() {
             </div>
 
             <div className="space-y-2.5">
-              {credentials.map((cred) => (
-                <div key={cred.slug} className="flex items-center gap-3 rounded-lg border border-border bg-bg px-4 py-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-[13px] font-medium text-text">{credentialLabel(cred)}</span>
-                      {cred.label && (
-                        <span className="text-[11px] text-text-muted">{cred.vendor}</span>
-                      )}
-                      <span className="text-[11px] text-text-muted font-mono">{cred.slug}</span>
-                      {(SHAPE_ORDER.filter((s) => s in cred.wires)).map((s) => (
-                        <span key={s} className="text-[10px] text-text-muted border border-border rounded px-1">{WIRE_SHAPE_SHORT[s]}</span>
-                      ))}
-                      {cred.hasApiKey && (
-                        <span className="text-[10px] text-green border border-green/40 rounded px-1">key set</span>
-                      )}
+              {credentials.map((cred) => {
+                const compatibleAgents = compatibleAgentIds(cred.wires)
+                return (
+                  <div key={cred.slug} className="flex min-w-0 flex-col gap-3 rounded-lg border border-border bg-bg px-4 py-3 sm:flex-row sm:items-center">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[13px] font-medium text-text">{credentialLabel(cred)}</span>
+                        {cred.label && (
+                          <span className="text-[11px] text-text-muted">{cred.vendor}</span>
+                        )}
+                        <span className="text-[11px] text-text-muted font-mono">{cred.slug}</span>
+                        {compatibleAgents.map((agentId) => (
+                          <span key={agentId} className="text-[10px] text-text-muted border border-border rounded px-1">{AGENT_LABELS[agentId] ?? agentId}</span>
+                        ))}
+                        {cred.hasApiKey && (
+                          <span className="text-[10px] text-green border border-green/40 rounded px-1">key set</span>
+                        )}
+                      </div>
+                      <div className="mt-0.5 truncate text-[11px] text-text-muted">
+                        Default model: <span className="font-mono">{cred.lastModel || 'not set'}</span>
+                        <span className="px-1.5 text-text-muted/50">·</span>
+                        <span className="font-mono">{Object.values(cred.wires)[0] || 'provider official endpoint'}</span>
+                      </div>
                     </div>
-                    <div className="text-[11px] text-text-muted mt-0.5 font-mono truncate">
-                      {Object.values(cred.wires)[0] || 'default endpoint'}
+                    <div className="flex shrink-0 gap-2 self-end sm:self-auto">
+                      <button
+                        onClick={() => setModal({ mode: 'edit', cred })}
+                        className="text-[11px] px-2 py-1 rounded-md border border-border text-text-muted hover:text-text transition-colors"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleDelete(cred.slug)}
+                        className="text-[11px] px-2 py-1 rounded-md border border-border text-text-muted hover:text-red transition-colors"
+                      >
+                        Delete
+                      </button>
                     </div>
                   </div>
-                  <button
-                    onClick={() => setModal({ mode: 'edit', cred })}
-                    className="text-[11px] px-2 py-1 rounded-md border border-border text-text-muted hover:text-text transition-colors"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => handleDelete(cred.slug)}
-                    className="text-[11px] px-2 py-1 rounded-md border border-border text-text-muted hover:text-red transition-colors"
-                  >
-                    Delete
-                  </button>
-                </div>
-              ))}
+                )
+              })}
 
               {credentials.length === 0 && (
                 <button
@@ -190,14 +207,15 @@ export function AIProviderPage() {
           </section>
 
           {/* ============== Agent runtimes ============== */}
-          <section>
+          <section className="min-w-0">
             <div className="rounded-lg border border-border/50 bg-bg-secondary/50 px-4 py-3 mb-4">
               <p className="text-[13px] text-text-muted leading-relaxed">
                 The agent runtimes a workspace can launch — a credential above feeds whichever
                 one a workspace (or cron job) runs. Pick by the models/provider you want; every
                 runtime reaches the full OpenAlice tool surface either way (native MCP where
                 supported, the <code className="font-mono text-[11.5px]">alice</code> CLI on PATH
-                otherwise). The model is chosen per workspace, not here.
+                otherwise). Each credential remembers a tested default model; a workspace can
+                override that model when needed.
               </p>
             </div>
 
@@ -270,7 +288,7 @@ function WorkspaceDefaultsSection({ credentials }: { credentials: CredentialSumm
   const reload = () =>
     api.config.getWorkspaceCredentialDefaults()
       .then(setData)
-      .catch(() => setData({ defaults: {}, compatibleByAgent: {} }))
+      .catch(() => setData({ defaults: {}, compatibleByAgent: {}, contextWindow: 256_000 }))
 
   // Re-derive when the vault changes (a deleted cred drops from compatible lists,
   // and the backend also clears any default that pointed at it).
@@ -281,16 +299,17 @@ function WorkspaceDefaultsSection({ credentials }: { credentials: CredentialSumm
     return c ? `${credentialLabel(c)} · ${slug}` : slug
   }
 
-  const setAgentDefault = async (agentId: string, slug: string) => {
+  const persist = async (
+    nextDefaults: Record<string, WorkspaceCredentialDefault>,
+    contextWindow: WorkspaceContextWindow,
+  ) => {
     if (!data) return
-    const nextDefaults = { ...data.defaults }
-    if (slug) nextDefaults[agentId] = { credentialSlug: slug }
-    else delete nextDefaults[agentId]
     setSaving(true); setError('')
-    setData({ ...data, defaults: nextDefaults }) // optimistic
+    setData({ ...data, defaults: nextDefaults, contextWindow }) // optimistic
     try {
-      const res = await api.config.setWorkspaceCredentialDefaults(nextDefaults)
-      setData((d) => (d ? { ...d, defaults: res.defaults } : d))
+      const res = await api.config.setWorkspaceCredentialDefaults(nextDefaults, contextWindow)
+      setData((d) => (d ? { ...d, defaults: res.defaults, contextWindow: res.contextWindow } : d))
+      notifyWorkspaceDefaultsChanged()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed')
       await reload()
@@ -299,11 +318,45 @@ function WorkspaceDefaultsSection({ credentials }: { credentials: CredentialSumm
     }
   }
 
+  const setAgentDefault = async (agentId: string, slug: string) => {
+    if (!data) return
+    const nextDefaults = { ...data.defaults }
+    if (slug) {
+      const cred = credentials.find((candidate) => candidate.slug === slug)
+      const wireShape = cred ? agentWireShapes(cred.wires, agentId)[0] : undefined
+      nextDefaults[agentId] = { credentialSlug: slug, ...(wireShape ? { wireShape } : {}) }
+    } else {
+      delete nextDefaults[agentId]
+    }
+    await persist(nextDefaults, data.contextWindow)
+  }
+
+  const setAgentWire = async (agentId: string, wireShape: WireShape) => {
+    if (!data) return
+    const current = data.defaults[agentId]
+    if (!current) return
+    await persist({
+      ...data.defaults,
+      [agentId]: { ...current, wireShape },
+    }, data.contextWindow)
+  }
+
+  const setContextWindow = async (contextWindow: WorkspaceContextWindow) => {
+    if (!data) return
+    await persist(data.defaults, contextWindow)
+  }
+
   const renderAgent = (agent: { id: string; name: string }, note?: string) => {
     const options = data?.compatibleByAgent[agent.id] ?? []
     const current = data?.defaults[agent.id]?.credentialSlug ?? ''
+    const selectedCredential = credentials.find((candidate) => candidate.slug === current)
+    const wireShapes = selectedCredential ? agentWireShapes(selectedCredential.wires, agent.id) : []
+    const configuredWire = data?.defaults[agent.id]?.wireShape
+    const selectedWire = configuredWire && wireShapes.includes(configuredWire)
+      ? configuredWire
+      : wireShapes[0] ?? ''
     return (
-      <div key={agent.id} className="flex items-center gap-3 rounded-lg border border-border bg-bg px-4 py-3">
+      <div key={agent.id} className="flex flex-col gap-3 rounded-lg border border-border bg-bg px-4 py-3 sm:flex-row sm:items-center">
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-2">
             <span className="text-[13px] font-medium text-text">{agent.name}</span>
@@ -314,15 +367,36 @@ function WorkspaceDefaultsSection({ credentials }: { credentials: CredentialSumm
             <p className="text-[11px] text-text-muted/70 mt-0.5 leading-snug">No compatible credential in the vault yet.</p>
           )}
         </div>
-        <select
-          className={inputClass + ' max-w-[240px]'}
-          value={current}
-          disabled={saving || options.length === 0}
-          onChange={(e) => void setAgentDefault(agent.id, e.target.value)}
-        >
-          <option value="">Don’t seed</option>
-          {options.map((slug) => <option key={slug} value={slug}>{credLabel(slug)}</option>)}
-        </select>
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:min-w-[260px]">
+          <select
+            aria-label={`${agent.name} default credential`}
+            className={inputClass}
+            value={current}
+            disabled={saving || options.length === 0}
+            onChange={(e) => void setAgentDefault(agent.id, e.target.value)}
+          >
+            <option value="">Don’t seed</option>
+            {options.map((slug) => <option key={slug} value={slug}>{credLabel(slug)}</option>)}
+          </select>
+          {current && wireShapes.length > 1 && (
+            <select
+              aria-label={`${agent.name} API protocol`}
+              className={inputClass}
+              value={selectedWire}
+              disabled={saving}
+              onChange={(e) => void setAgentWire(agent.id, e.target.value as WireShape)}
+            >
+              {wireShapes.map((shape) => (
+                <option key={shape} value={shape}>{WIRE_SHAPE_GUIDANCE[shape]}</option>
+              ))}
+            </select>
+          )}
+          {current && wireShapes.length === 1 && (
+            <p className="px-1 text-[10.5px] text-text-muted">
+              Protocol: {WIRE_SHAPE_GUIDANCE[wireShapes[0]!]}
+            </p>
+          )}
+        </div>
       </div>
     )
   }
@@ -332,7 +406,8 @@ function WorkspaceDefaultsSection({ credentials }: { credentials: CredentialSumm
       <div className="rounded-lg border border-border/50 bg-bg-secondary/50 px-4 py-3 mb-4">
         <p className="text-[13px] text-text-muted leading-relaxed">
           Seed a default credential into every <em>new</em> workspace, so you don’t open the
-          per-workspace AI config each time. It’s written into the workspace’s own agent config
+          per-workspace AI config each time. Choose the credential, protocol, and default context
+          limit that should be written into the workspace’s own agent config
           files at create — existing workspaces are untouched, and you can still override any
           workspace afterwards. opencode and Pi need a key to run; Claude Code and Codex normally
           run on their own CLI login (<code className="font-mono text-[11.5px]">claude login</code> /{' '}
@@ -356,6 +431,27 @@ function WorkspaceDefaultsSection({ credentials }: { credentials: CredentialSumm
         </div>
       ) : (
         <div className="space-y-2.5">
+          <div className="flex flex-col gap-3 rounded-lg border border-border bg-bg px-4 py-3 sm:flex-row sm:items-center">
+            <div className="min-w-0 flex-1">
+              <div className="text-[13px] font-medium text-text">Default context window</div>
+              <p className="mt-0.5 text-[11px] leading-snug text-text-muted">
+                Applied to new opencode and Pi model entries. 256K avoids common higher-price tiers; existing workspaces stay unchanged.
+              </p>
+            </div>
+            <select
+              aria-label="Default workspace context window"
+              className={inputClass + ' w-full sm:w-[160px]'}
+              value={data.contextWindow}
+              disabled={saving}
+              onChange={(e) => void setContextWindow(Number(e.target.value) as WorkspaceContextWindow)}
+            >
+              <option value={128_000}>128K</option>
+              <option value={256_000}>256K</option>
+              <option value={512_000}>512K</option>
+              <option value={1_000_000}>1M</option>
+            </select>
+          </div>
+
           {PRIMARY_DEFAULT_AGENTS.map((a) => renderAgent(a))}
 
           <button

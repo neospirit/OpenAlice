@@ -11,7 +11,7 @@
 
 import { createServer, type Server } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { probeAnthropic, probeOpenAI } from './agent-probe.js';
+import { probeAnthropic, probeGoogleGenerativeAi, probeOpenAI } from './agent-probe.js';
 
 interface Captured {
   headers: Record<string, string | string[] | undefined>;
@@ -30,16 +30,20 @@ beforeEach(async () => {
     req.on('data', (c) => (body += c));
     req.on('end', () => {
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(req.url?.endsWith('/chat/completions')
+      res.end(req.url?.includes(':generateContent')
         ? JSON.stringify({
+          candidates: [{ content: { parts: [{ text: 'pong' }] } }],
+        })
+        : req.url?.endsWith('/chat/completions')
+          ? JSON.stringify({
           id: 'chatcmpl_1', object: 'chat.completion', created: 0, model: 'x',
           choices: [{ index: 0, message: { role: 'assistant', content: 'pong' }, finish_reason: 'stop' }],
-        })
-        : JSON.stringify({
+          })
+          : JSON.stringify({
           id: 'msg_1', type: 'message', role: 'assistant', model: 'x',
           content: [{ type: 'text', text: 'pong' }], stop_reason: 'end_turn',
           usage: { input_tokens: 1, output_tokens: 1 },
-        }));
+          }));
     });
   });
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
@@ -93,5 +97,19 @@ describe('probeOpenAI auth header', () => {
     expect(out.text).toBe('pong');
     expect(captured?.headers['authorization']).toBe('Bearer sk-openai');
     expect(captured?.url).toBe('/openai/v1/chat/completions');
+  });
+});
+
+describe('probeGoogleGenerativeAi auth header', () => {
+  it('uses x-goog-api-key on the native generateContent wire', async () => {
+    const out = await probeGoogleGenerativeAi({
+      baseUrl: baseUrl.replace('/anthropic', '/google/v1beta'),
+      apiKey: 'AQ.test-key',
+      model: 'gemini-test',
+    });
+    expect(out.text).toBe('pong');
+    expect(captured?.headers['x-goog-api-key']).toBe('AQ.test-key');
+    expect(captured?.headers['authorization']).toBeUndefined();
+    expect(captured?.url).toBe('/google/v1beta/models/gemini-test:generateContent');
   });
 });

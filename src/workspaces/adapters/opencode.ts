@@ -226,15 +226,24 @@ export const opencodeAdapter: CliAdapter = {
       return;
     }
 
-    const options: Record<string, string> = {};
+    const options: Record<string, unknown> = {};
     if (cred.baseUrl) options['baseURL'] = cred.baseUrl;
-    if (cred.apiKey) options['apiKey'] = cred.apiKey;
+    if (cred.apiKey) {
+      if (cred.wireShape === 'anthropic' && cred.authMode === 'bearer') {
+        // Do not also set apiKey: @ai-sdk/anthropic would add x-api-key and
+        // bearer-only gateways can reject the resulting dual-auth request.
+        options['headers'] = { Authorization: `Bearer ${cred.apiKey}` };
+      } else {
+        options['apiKey'] = cred.apiKey;
+      }
+    }
 
     // The @ai-sdk package opencode loads depends on the wire shape (all bundled):
-    // anthropic → @ai-sdk/anthropic, OpenAI Responses → @ai-sdk/openai, and
-    // OpenAI Chat Completions (the default — CN/local gateways) → the
+    // anthropic → @ai-sdk/anthropic, Google Generative AI → @ai-sdk/google,
+    // OpenAI Responses → @ai-sdk/openai, and OpenAI Chat Completions → the
     // openai-compatible SDK.
     const npm = cred.wireShape === 'anthropic' ? '@ai-sdk/anthropic'
+      : cred.wireShape === 'google-generative-ai' ? '@ai-sdk/google'
       : cred.wireShape === 'openai-responses' ? '@ai-sdk/openai'
       : OPENCODE_SDK_NPM;
     const provider: Record<string, unknown> = {
@@ -278,7 +287,14 @@ export const opencodeAdapter: CliAdapter = {
     const ws = (provider[OPENCODE_PROVIDER_NAME] ?? {}) as Record<string, unknown>;
     const options = (ws['options'] ?? {}) as Record<string, unknown>;
     const baseUrl = typeof options['baseURL'] === 'string' ? (options['baseURL'] as string) : null;
-    const apiKey = typeof options['apiKey'] === 'string' ? (options['apiKey'] as string) : null;
+    const headers = (options['headers'] ?? {}) as Record<string, unknown>;
+    const authorization = typeof headers['Authorization'] === 'string'
+      ? headers['Authorization']
+      : typeof headers['authorization'] === 'string'
+        ? headers['authorization']
+        : null;
+    const bearerKey = authorization?.match(/^Bearer\s+(.+)$/i)?.[1] ?? null;
+    const apiKey = typeof options['apiKey'] === 'string' ? (options['apiKey'] as string) : bearerKey;
     // Top-level model is "<provider>/<id>"; surface just the id back to the modal.
     let model: string | null = null;
     const top = parsed['model'];
@@ -294,9 +310,17 @@ export const opencodeAdapter: CliAdapter = {
     // Reverse the npm package back to the wire shape.
     const npm = typeof ws['npm'] === 'string' ? (ws['npm'] as string) : '';
     const wireShape = npm === '@ai-sdk/anthropic' ? 'anthropic' as const
+      : npm === '@ai-sdk/google' ? 'google-generative-ai' as const
       : npm === '@ai-sdk/openai' ? 'openai-responses' as const
       : 'openai-chat' as const;
-    return { baseUrl, apiKey, model, wireShape, ...(contextWindow ? { contextWindow } : {}) };
+    return {
+      baseUrl,
+      apiKey,
+      model,
+      wireShape,
+      ...(wireShape === 'anthropic' ? { authMode: bearerKey ? 'bearer' as const : 'x-api-key' as const } : {}),
+      ...(contextWindow ? { contextWindow } : {}),
+    };
   },
 
   /**

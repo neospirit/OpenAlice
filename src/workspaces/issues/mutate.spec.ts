@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { readWorkspaceIssues } from './declaration.js'
-import { readIssueComments } from './comments.js'
+import { readIssueComments, updateIssueCommentDelivery } from './comments.js'
 import { appendIssueComment, createIssue, updateIssueFields } from './mutate.js'
 
 let dir: string
@@ -62,6 +62,28 @@ describe('createIssue', () => {
     })
     expect(issue?.when).toEqual({ kind: 'every', every: '30m' })
     expect(issue?.what).toBe('run the research routine')
+  })
+
+  it('accepts @new only for scheduled work that will choose its first owner', async () => {
+    const scheduled = await createIssue(dir, {
+      id: 'choose-owner',
+      title: 'Choose one owner',
+      assignee: '@new',
+      when: { kind: 'every', every: '30m' },
+      agent: 'pi',
+    })
+    expect(scheduled.ok && scheduled.issue.assignee).toBe('@new')
+
+    const unscheduled = await createIssue(dir, {
+      id: 'no-trigger',
+      title: 'No trigger',
+      assignee: '@new',
+    })
+    expect(unscheduled.ok).toBe(false)
+    if (!unscheduled.ok) {
+      expect(unscheduled.reason).toBe('invalid')
+      if (unscheduled.reason === 'invalid') expect(unscheduled.error).toContain('@new needs a schedule')
+    }
   })
 
   it('refuses to overwrite an existing issue (conflict)', async () => {
@@ -175,6 +197,39 @@ describe('updateIssueFields', () => {
     const r = await updateIssueFields(dir, 'r', { assignee: '   ' })
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.reason).toBe('invalid')
+  })
+
+  it('records reply edges and updates durable delivery state idempotently', async () => {
+    await createIssue(dir, { id: 'threaded', title: 'Threaded' })
+    const source = await appendIssueComment(dir, 'threaded', 'human', 'why?', {
+      id: 'comment-source',
+      delivery: { state: 'pending', targetResumeId: 'resume-owner', taskId: 'run-1' },
+    })
+    expect(source.ok).toBe(true)
+    const reply = await appendIssueComment(dir, 'threaded', '@resume-owner', 'because', {
+      id: 'comment-reply-run-1',
+      replyTo: 'comment-source',
+    })
+    expect(reply.ok).toBe(true)
+    const duplicate = await appendIssueComment(dir, 'threaded', '@resume-owner', 'because', {
+      id: 'comment-reply-run-1',
+      replyTo: 'comment-source',
+    })
+    expect(duplicate.ok && duplicate.comment.id).toBe('comment-reply-run-1')
+    await updateIssueCommentDelivery(dir, 'threaded', 'comment-source', {
+      state: 'replied',
+      targetResumeId: 'resume-owner',
+      taskId: 'run-1',
+      replyCommentId: 'comment-reply-run-1',
+    })
+    const comments = await readIssueComments(dir, 'threaded')
+    expect(comments.ok && comments.comments).toEqual([
+      expect.objectContaining({
+        id: 'comment-source',
+        delivery: expect.objectContaining({ state: 'replied', replyCommentId: 'comment-reply-run-1' }),
+      }),
+      expect.objectContaining({ id: 'comment-reply-run-1', replyTo: 'comment-source' }),
+    ])
   })
 })
 

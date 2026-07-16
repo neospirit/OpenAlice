@@ -28,6 +28,7 @@ export type IssueAutomationHealthState =
   | 'due'
   | 'running'
   | 'healthy'
+  | 'interrupted'
   | 'failed'
   | 'blocked'
 
@@ -56,13 +57,20 @@ export interface IssueProvenanceRecord {
   action: IssueProvenanceAction
   origin: IssueProvenanceOrigin
   at: number
+  mutation?: {
+    fields: Array<{ field: string; before?: string; after?: string }>
+  }
 }
 
-/** Unified Issue log. Persistence stays domain-owned; the API supplies one
- * chronological projection for UI, CLI, and future activity consumers. */
+/** Human-facing Issue timeline. Runtime executions stay in `runs`. */
 export type IssueActivityRecord =
   | ({ kind: 'change' } & IssueProvenanceRecord)
-  | { kind: 'run'; id: string; at: number; run: HeadlessTaskRecord }
+  | { kind: 'comment'; id: string; at: number; comment: IssueComment }
+
+export type IssueCommentDelivery =
+  | { state: 'pending'; targetResumeId: string; taskId: string }
+  | { state: 'replied'; targetResumeId: string; taskId: string; replyCommentId: string }
+  | { state: 'failed'; targetResumeId: string; taskId?: string; error: string }
 
 export interface IssueComment {
   id: string
@@ -70,6 +78,30 @@ export interface IssueComment {
   at: string
   /** Full markdown payload. Comments deliberately do not share the agent-editable What file. */
   markdown: string
+  replyTo?: string
+  delivery?: IssueCommentDelivery
+}
+
+export type IssueRunFailureKind =
+  | 'system_paused'
+  | 'launcher_restarted'
+  | 'timeout'
+  | 'launch_error'
+  | 'process_exit'
+  | 'runtime_error'
+
+export interface IssueRunFailure {
+  kind: IssueRunFailureKind
+  title: string
+  message: string
+  retryable: boolean
+}
+
+/** Issue-safe headless projection. Native runtime session ids remain hidden;
+ * failure is a read-side explanation derived by the backend. */
+export interface IssueRunRecord extends HeadlessTaskRecord {
+  issueId?: string
+  failure?: IssueRunFailure
 }
 
 export interface IssueListItem {
@@ -77,7 +109,7 @@ export interface IssueListItem {
   title: string
   status: IssueStatus
   priority: IssuePriority
-  /** @workspace | @human | @unassigned | exact @resumeId Session signature. */
+  /** @workspace | @new | @human | @unassigned | exact @resumeId Session signature. */
   assignee: string
   /** Adapter id for the scheduled fire override, if set. */
   agent?: string
@@ -165,7 +197,7 @@ export interface IssueDetailIssue {
   what: string
   status: IssueStatus
   priority: IssuePriority
-  /** @workspace | @human | @unassigned | exact @resumeId Session signature. */
+  /** @workspace | @new | @human | @unassigned | exact @resumeId Session signature. */
   assignee: string
   /** Present iff the issue self-schedules. */
   when?: ScheduleWhen
@@ -179,13 +211,13 @@ export interface IssueDetailIssue {
   automationHealth?: IssueAutomationHealth
 }
 
-/** GET /api/issues/:wsId/:id — one issue + its run history (Activity feed). */
+/** GET /api/issues/:wsId/:id — one issue + Activity, Runs, and reports. */
 export interface IssueDetail {
   issue: IssueDetailIssue
   /** Structured markdown comments from `<id>.comments.json`. */
   comments?: IssueComment[]
   /** This issue's headless runs (wsId + issueId match), newest first. */
-  runs: HeadlessTaskRecord[]
+  runs: IssueRunRecord[]
   /**
    * The inbox reports this issue produced — every inbox entry from this
    * workspace whose server-stamped `origin.issueId` is this issue, newest-first.
@@ -194,12 +226,9 @@ export interface IssueDetail {
    * issue with no reports yields an empty array.
    */
   inboxReports?: InboxEntry[]
-  /** Creation/update/comment activity, newest first. Nearby updates from one
-   * origin are coalesced into an editing activity. Optional for legacy/demo
-   * payloads written before provenance projection existed. */
+  /** Raw provenance edges. Nearby updates from one origin are coalesced. */
   provenance?: IssueProvenanceRecord[]
-  /** Unified change + scheduled execution log. Optional for older/demo servers;
-   * the client can derive it from provenance/runs during rollout. */
+  /** Changes + comments, oldest first. Optional for older/demo servers. */
   activity?: IssueActivityRecord[]
 }
 
@@ -253,6 +282,15 @@ export const issuesApi = {
     return fetchJson<IssueDetail>(
       `/api/issues/${encodeURIComponent(wsId)}/${encodeURIComponent(id)}/comments`,
       { method: 'POST', headers, body: JSON.stringify({ text }) },
+    )
+  },
+
+  /** Retry the latest failed/interrupted scheduled run with its live Issue
+   * prompt, owner, and runtime. The backend preserves the cadence marker. */
+  async retry(wsId: string, id: string): Promise<IssueDetail> {
+    return fetchJson<IssueDetail>(
+      `/api/issues/${encodeURIComponent(wsId)}/${encodeURIComponent(id)}/retry`,
+      { method: 'POST', headers },
     )
   },
 }

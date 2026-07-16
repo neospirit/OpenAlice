@@ -16,9 +16,13 @@ on:
       - "scripts/desktop-package-artifact.mjs"
       - "scripts/desktop-packaged-smoke.mjs"
       - "scripts/desktop-packaged-smoke-plan.mjs"
+      - "scripts/build-broker-packs.ts"
       - "scripts/guardian/**"
+      - "scripts/pnpm-command.mjs"
+      - "scripts/pnpm-command.spec.ts"
       - "scripts/prepare-desktop-release-assets.mjs"
       - "scripts/smoke-packaged-toolchain.mjs"
+      - "scripts/verify-broker-packs.ts"
       - "scripts/workspace-acceptance-ai-mock.mjs"
       - "scripts/vendor-managed-runtime.mjs"
       - "default/**"
@@ -32,6 +36,9 @@ on:
       - "src/webui/routes/workspaces.ts"
       - "src/workspaces/**"
       - "services/uta/**"
+      - "services/connector/**"
+      - "packages/connector-protocol/**"
+      - "packages/uta-broker-*/**"
   push:
     # Keep push package smoke master-only: PRs into dev get coverage, while
     # routine dev integration pushes do not burn the expensive desktop matrix.
@@ -48,9 +55,13 @@ on:
       - "scripts/desktop-package-artifact.mjs"
       - "scripts/desktop-packaged-smoke.mjs"
       - "scripts/desktop-packaged-smoke-plan.mjs"
+      - "scripts/build-broker-packs.ts"
       - "scripts/guardian/**"
+      - "scripts/pnpm-command.mjs"
+      - "scripts/pnpm-command.spec.ts"
       - "scripts/prepare-desktop-release-assets.mjs"
       - "scripts/smoke-packaged-toolchain.mjs"
+      - "scripts/verify-broker-packs.ts"
       - "scripts/workspace-acceptance-ai-mock.mjs"
       - "scripts/vendor-managed-runtime.mjs"
       - "default/**"
@@ -64,6 +75,9 @@ on:
       - "src/webui/routes/workspaces.ts"
       - "src/workspaces/**"
       - "services/uta/**"
+      - "services/connector/**"
+      - "packages/connector-protocol/**"
+      - "packages/uta-broker-*/**"
 
 jobs:
   package:
@@ -93,6 +107,11 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Build optional Broker Packs on Windows
+        if: runner.os == 'Windows'
+        run: pnpm broker-packs:build
+        timeout-minutes: 10
 
       # Keep this until the Windows managed Git runtime fully replaces dugite's
       # embedded payload. It catches a skipped dugite postinstall before a
@@ -133,8 +152,18 @@ jobs:
         run: pnpm electron:smoke-toolchain
 
       - name: Prove packaged Workspace CLI acceptance
+        if: runner.os != 'Windows'
         run: pnpm electron:smoke:workspace --skip-build --skip-pack
         timeout-minutes: 5
+        env:
+          OPENALICE_SMOKE_RECEIPT_PATH: ${{ runner.temp }}/openalice-workspace-acceptance.json
+
+      # Re-run the cached desktop build through the Node wrapper on Windows.
+      # This guards the pnpm.cmd quoting path used by local packaged smokes.
+      - name: Prove packaged Workspace CLI acceptance and Windows build wrapper
+        if: runner.os == 'Windows'
+        run: pnpm electron:smoke:workspace --skip-pack
+        timeout-minutes: 10
         env:
           OPENALICE_SMOKE_RECEIPT_PATH: ${{ runner.temp }}/openalice-workspace-acceptance.json
 

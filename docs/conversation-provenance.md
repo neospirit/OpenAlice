@@ -252,7 +252,10 @@ Inbox entry -> sender resumeId -> exact product Session
 
 This answers “who sent this message?” independently from who last edited any
 live document linked by the notification. Legacy/manual entries may have only a
-Workspace; those resolve through the explicit reconstruction path.
+Workspace; those resolve through the explicit reconstruction path. Product and
+external-notification surfaces display the sender as `@resumeId` (optionally
+preceded by its runtime label); a generic label such as `pi` must not hide the
+unique Session signature already present in the origin envelope.
 
 ### Issues: creation provenance versus execution responsibility
 
@@ -266,22 +269,35 @@ An Issue has two independent identity questions:
 `assignee` is the single answer to the second question; schedule is an intrinsic
 capability of that Work item, not a second ownership object.
 
-Issue detail and `alice-workspace issue show` expose `created` / `updated` /
-`commented` activity newest-first. Adjacent updates from the same origin are
-projected as one editing activity, including historical autosave records written
-before store-side coalescing existed. Session origins carry a product
+Issue detail and `alice-workspace issue show` expose creation/update provenance
+plus structured comments. Adjacent updates from the same origin are projected
+as one editing activity, including historical autosave records written before
+store-side coalescing existed. Session origins carry a product
 `resumeId`, so a human or agent can continue that exact author without learning
 a runtime-native session id. Missing history remains visibly unattributed for
 legacy or manual files; it is never inferred from the current assignee,
 scheduled owner, or Workspace default runtime.
 
-The Issue detail API also exposes a unified chronological `activity[]` log.
-Change activities come from the provenance store; scheduled execution
-activities come from the headless run registry. They remain authoritative in
-their own persistence systems, while the projection gives UI, CLI, and future
-automation one extensible contract for “what happened to this Issue.” New kinds
-such as Inbox delivery or schedule skips should extend this activity union
-instead of creating another parallel timeline.
+The Issue detail API exposes a chronological `activity[]` collaboration
+timeline, oldest first. Change activities come from the provenance store and
+comment activities come from the structured comment sidecar. A `commented`
+provenance edge is not rendered separately because the full comment is the
+richer version of that same event. Scheduled/headless executions remain in the
+independent `runs[]` operational ledger; high-volume runtime history must not
+swallow the human-facing Activity timeline.
+
+Updated activities carry compact field-level before/after values. The large
+markdown What document is recorded only as “edited What”; its exact contents
+belong in the Workspace Git history. A launcher-owned snapshot detects direct
+Issue-file edits that bypass UI/CLI mutation routes. Such edits are attributed
+to a Session only when exactly one Session could have made them; concurrent
+edits remain explicitly unknown rather than crediting the wrong coworker.
+
+When an Issue has a fixed `@resumeId` owner, a comment from somebody else is
+delivered to that exact Session. The final assistant response is recorded as a
+reply comment, linked by `replyTo`; delivery state stays on the source comment.
+Workspace-owned Issues do not recruit a fresh worker for comments. This keeps
+“leave a durable note” separate from “create a new execution owner.”
 
 #### Mode A: one responsible Session
 
@@ -304,7 +320,19 @@ authoritative product Session; OpenAlice resolves and persists the concrete
 `@resumeId` server-side. `@me` is never stored. A human UI may select an
 existing resumable Workspace Session.
 
-#### Mode B: a fresh worker per fire
+#### Mode B: recruit once, then keep that worker
+
+```yaml
+assignee: "@new"
+```
+
+- The first scheduled fire creates a new headless product Session.
+- OpenAlice immediately rewrites `@new` to that Session's exact `@resumeId`.
+- Later fires and Issue comments continue the same accountable coworker.
+- The Issue may specify `agent` before the first claim; after the claim, the
+  concrete Session owns its runtime.
+
+#### Mode C: a fresh worker per fire
 
 ```yaml
 assignee: "@workspace"
@@ -317,7 +345,7 @@ assignee: "@workspace"
   a unique worker.
 - Each run keeps its own origin so a user can still ask that specific worker.
 
-The Issue's creator provenance is stamped separately in both modes. Workspace
+The Issue's creator provenance is stamped separately in all modes. Workspace
 ownership does not erase who designed the Issue.
 
 Migration `0018_issue_assignee_ownership` removes the former `execution` field
@@ -420,8 +448,9 @@ approval state, routing, fills, and slippage.
 9. Mutable artifacts retain occurrence-level provenance instead of one mutable
    “author” field.
 10. Issue creation provenance and future execution responsibility are separate.
-11. Issue assignee is the only ownership/dispatch contract: `@workspace` or an
-    exact `@resumeId` for scheduled work.
+11. Issue assignee is the only ownership/dispatch contract: `@new` recruits
+    once and becomes an exact owner, `@workspace` recruits on every fire, and
+    an exact `@resumeId` continues one known Session.
 12. Trade decision attribution and trade execution authority remain separate.
 13. Provenance is stamped from authoritative context, not asserted by an agent.
 14. Existing UUID `resumeId`s remain valid; readable ids apply only to new
@@ -529,6 +558,7 @@ inbox ask <entry>             -> sender Session or reconstructed Workspace Sessi
 issue ask <issue> --creator   -> creation provenance (shipped)
 issue ask <issue> --owner     -> declared Session assignee, or explain Workspace ownership (shipped)
 issue ask <issue> --run-id    -> that run's Session (shipped)
+issue comment <issue>         -> timeline note; fixed owner replies in Activity (shipped)
 report ask <path> [revision]  -> matching writer/update occurrence
 trade ask <order> --decision  -> initiating Session
 trade ask <order> --execution -> UTA/broker evidence, not an AI conversation
@@ -545,7 +575,7 @@ No feature should invent its own meaning of “the agent who made this.”
 | Product Session | `ResumeRegistry`, headless `resumeId`, interactive materialization | Standard origin projection and read-only lookup | Continue exact or create reconstructed Session |
 | Execution | `HeadlessTaskRegistry`, `parentTaskId`, normalized output | Bind every attributable occurrence to the execution and `resumeId` | Poll/stream the peer reply and tool activity |
 | Inbox | Server-stamped run/session origin | Safe exposure and legacy/unknown classification | Ask sender or reconstruct at Workspace |
-| Issue | `{ workspaceId, issueId }`, run and Inbox activity | Creator/mutation edges plus explicit Workspace/Session ownership | Ask creator, owner, or one selected run |
+| Issue | `{ workspaceId, issueId }`, Activity, Runs, and Inbox reports | Creator/mutation edges, structured comment threads, plus explicit Workspace/Session ownership | Comment to the fixed owner; explicitly ask creator or one selected run |
 | Report | Workspace path and git repository | Revision-level creation/update attribution | Ask writer of the selected revision |
 | Trade | UTA operation/order authority | Alice Session decision correlation across the UTA boundary | Ask initiator; route execution questions to UTA evidence |
 

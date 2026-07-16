@@ -63,7 +63,10 @@ export function registerCliRoutes(app: Hono, deps: CliGatewayDeps): void {
   const resolveWs = (wsId: string): { meta: WsMeta } | { error: 'unavailable' | 'unknown' } => {
     const svc = getWorkspaceService()
     if (!svc) return { error: 'unavailable' }
-    const meta = svc.registry.get(wsId)
+    // Older test doubles and embedders only expose the ordinary registry.
+    // The real service adds resolveRuntimeWorkspace so the reserved manager
+    // identity can share the CLI without entering the business registry.
+    const meta = svc.resolveRuntimeWorkspace?.(wsId) ?? svc.registry.get(wsId)
     if (!meta) return { error: 'unknown' }
     return { meta: { id: meta.id, tag: meta.tag } }
   }
@@ -91,10 +94,41 @@ export function registerCliRoutes(app: Hono, deps: CliGatewayDeps): void {
         entityStore,
         ...(svc ? { provenanceStore: svc.provenanceStore } : {}),
         ...(svc ? { conversation: createWorkspaceConversationControl(svc) } : {}),
+        ...(svc ? { templateUpgrades: svc.templateUpgrades } : {}),
         // Lets workspace_path resolve ANY peer's dir (not just the caller) —
         // the in-workspace cross-workspace addressing path. Shared with the
         // mcp.ts build site so the two never drift.
         resolveWorkspace: makeWorkspaceResolver(getWorkspaceService),
+        ...(svc ? {
+          workspaceInventory: async () => Promise.all(svc.registry.list().map(async (meta) => {
+            await svc.sessionRegistry.ensureLoaded(meta.id)
+            const sessions = svc.sessionRegistry.listFor(meta.id)
+            const activity = svc.workspaceRuntimeActivity(meta.id)
+            return {
+              id: meta.id,
+              tag: meta.tag,
+              ...(meta.template ? { template: meta.template } : {}),
+              agents: meta.agents,
+              createdAt: meta.createdAt,
+              sessions: {
+                total: sessions.length,
+                running: activity.sessions.length,
+                recent: sessions
+                  .slice()
+                  .sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt))
+                  .slice(0, 4)
+                  .map((session) => ({
+                    resumeId: session.resumeId,
+                    agent: session.agent,
+                    title: session.title?.trim() || session.name,
+                    state: session.state,
+                    lastActiveAt: session.lastActiveAt,
+                  })),
+              },
+              headlessRunning: activity.headless.length,
+            }
+          })),
+        } : {}),
         resolveInboxOrigin: makeInboxEntryOriginResolver(getWorkspaceService),
         ...(svc ? { sessionDirectory: (id: string, limit?: number) => svc.sessionDirectory(id, limit) } : {}),
         ...(svc ? {

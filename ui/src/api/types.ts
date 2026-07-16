@@ -68,13 +68,21 @@ export interface SdkAdapterInfo {
 
 // ==================== AI Provider Presets ====================
 
-export type WireShape = 'anthropic' | 'openai-chat' | 'openai-responses'
+export type WireShape = 'anthropic' | 'google-generative-ai' | 'openai-chat' | 'openai-responses'
 
 /** A region + the per-wire-shape endpoints it offers. */
 export interface SerializedRegion {
   id: string
   label: string
   wires: Partial<Record<WireShape, string>>
+}
+
+export interface CredentialSetupGuide {
+  apiKeyLabel: string
+  apiKeyPlaceholder?: string
+  apiKeyHelp: string
+  modelHelp: string
+  regionHelp?: string
 }
 
 export interface Preset {
@@ -88,6 +96,8 @@ export interface Preset {
   /** Regions × their per-shape endpoints — the form picks a region; the
    *  credential captures that region's whole wires map (its capabilities). */
   regions?: SerializedRegion[]
+  /** Provider-aware guidance for the API-key credential form. */
+  setup?: CredentialSetupGuide
 }
 
 /** Subset of JSON Schema types we use for form rendering. */
@@ -177,31 +187,14 @@ export interface AppConfig {
     every: string
   }
   mcp: McpConfig
-  connectors: ConnectorsConfig
+  ports: { web: number }
   [key: string]: unknown
 }
 
-/**
- * MCP server config — lives at top-level of AppConfig (NOT under
- * connectors:) because the MCP server exports OpenAlice's ToolCenter
- * to external clients, not because it's a chat-input surface.
- * `connectors.mcpAsk` is the chat-shaped MCP-as-input flavour and
- * stays under connectors.
- */
+/** MCP server config exports OpenAlice's ToolCenter to external clients. */
 export interface McpConfig {
   enabled: boolean
   port: number
-}
-
-export interface ConnectorsConfig {
-  web: { port: number }
-  mcpAsk: { enabled: boolean; port?: number }
-  telegram: {
-    enabled: boolean
-    botToken?: string
-    botUsername?: string
-    chatIds: number[]
-  }
 }
 
 // ==================== News Collector ====================
@@ -524,6 +517,17 @@ export interface BrokerPreset {
   modes?: ModeOption[]
   subtitleFields: SubtitleField[]
   schema: JsonSchema
+}
+
+export type BrokerEngine = BrokerPreset['engine']
+
+export interface BrokerPackStatus {
+  engine: BrokerEngine
+  installed: boolean
+  source: 'builtin' | 'workspace' | 'downloaded' | 'missing' | 'broken'
+  version?: string
+  reason?: string
+  requiredBy: string[]
 }
 
 export interface GuardEntry {

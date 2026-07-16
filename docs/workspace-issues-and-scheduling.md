@@ -48,6 +48,8 @@ The filename stem is the stable issue id. Frontmatter:
 - `status` — `backlog | todo | in_progress | done | canceled`; default `todo`.
 - `priority` — `urgent | high | medium | low | none`; default `none`.
 - `assignee` — the single ownership and dispatch contract:
+  - `@new` means the owning Workspace recruits one new product Session on the
+    first fire, then persists that concrete Session as the future owner;
   - `@workspace` means the owning Workspace recruits a new product Session for
     every scheduled fire;
   - an exact `@resumeId` continues one accountable product Session;
@@ -56,7 +58,7 @@ The filename stem is the stable issue id. Frontmatter:
   - `{ kind: at, at: <ISO timestamp> }`
   - `{ kind: every, every: <duration> }`
   - `{ kind: cron, cron: <5-field expression>, timezone: local | <IANA zone> }`
-- `agent` — optional CLI adapter id for `@workspace`-owned scheduled work;
+- `agent` — optional CLI adapter id for `@new` / `@workspace` scheduled work;
   otherwise Workspace/default resolution is used. A Session assignee already
   owns its runtime and cannot be overridden here.
 
@@ -73,9 +75,19 @@ description/prompt fallback chain that can drift.
 
 Comments are markdown too, but they are not part of What. They persist in the
 adjacent `.alice/issues/<id>.comments.json` sidecar as structured records
-(`id`, `author`, `at`, `markdown`). The Issue document is intentionally editable
-by agents and has no reliable internal structure, so comments must not depend on
-a heading surviving an arbitrary rewrite.
+(`id`, `author`, `at`, `markdown`, plus optional reply/delivery metadata). The
+Issue document is intentionally editable by agents and has no reliable internal
+structure, so comments must not depend on a heading surviving an arbitrary
+rewrite.
+
+Comments are also the Issue's normal conversation entry. When `assignee` is an
+exact `@resumeId`, a comment from somebody else is delivered asynchronously to
+that Session and its final reply is appended as another structured comment.
+The source comment records `pending`, `replied`, or `failed`, so a durable note
+never masquerades as a delivered message. A comment on `@workspace`, `@human`,
+or `@unassigned` stays a timeline note: OpenAlice does not invent a new owner
+just because somebody commented. An owner commenting on their own Issue is not
+echoed back to the same Session.
 
 `done` and `canceled` are terminal and stop scheduled firing. There is no
 separate `enabled` flag. A successful one-shot `at` issue is automatically
@@ -117,6 +129,11 @@ The CLI and MCP tools use the same implementation and write the same files.
 Direct file editing is also valid and is the clearest way to author rich What
 markdown plus `when` / `assignee` / `agent` frontmatter.
 
+`issue comment` is preferable to a generic `issue ask --owner` for normal
+collaboration because it leaves the question and answer in the Issue Activity
+timeline. Explicit asks remain useful for interrogating the creator or one
+selected historical run without adding a board comment.
+
 Reads such as list/show aggregate all workspaces. Writes from an autonomous or
 headless run stay inside its own Workspace. Editing a peer Workspace requires
 an attended, human-approved path and a commit in the peer repository.
@@ -148,7 +165,11 @@ the latest scheduled run, and the assignee's resume availability. It is not
 persisted in markdown and does not create another Issue workflow status:
 
 - `not_started`, `due`, `running`, and `healthy` describe normal progress;
-- `failed` retains the latest failed/interrupted run until a later success;
+- `interrupted` means the work was cut off by launcher restart, or its 30-minute
+  watchdog itself woke substantially late (usually computer sleep / launcher
+  suspension); this is operational interruption, not an agent-work failure;
+- `failed` retains a real timeout, launch error, runtime error, or non-zero
+  process exit until a later success;
 - `blocked` means the schedule has no future fire, or an exact Session owner is
   missing, retired, or not resumable;
 - `inactive` means Issue status `done`/`canceled` has stopped the schedule.
@@ -157,10 +178,25 @@ Health measures scheduler fulfillment, not human attention. A successful run
 may correctly exit silently when its condition is false, so Inbox delivery is
 not a health prerequisite.
 
+Failure explanations are read-side projections from the durable run record.
+Old runs therefore gain structured `failure.kind/title/message/retryable`
+diagnostics without migration. A killed run close to 30 minutes is a timeout;
+a killed run whose watchdog closes much later is described conservatively as a
+paused computer/launcher rather than falsely blaming the agent.
+
+The Issue detail offers **Retry now** only for the latest failed or interrupted
+scheduled run. Retry re-reads the live Issue and uses the same markdown What,
+assignee, runtime, resume mapping, and 30-minute budget as a scheduled fire. It
+does not write the last-fired marker, so a recovery attempt never shifts the
+Issue's cadence. The backend rejects duplicate/racing retries and returns the
+authoritative running detail immediately; there is no automatic retry storm.
+
 Headless runs may overlap with interactive sessions or other runs in the same
 checkout. Agents must tolerate concurrent edits. The launcher currently admits
 at most eight headless processes globally and serializes registry persistence,
-but there is no per-Workspace exclusive lock.
+but there is no per-Workspace exclusive lock. One small dispatch-start guard
+prevents a manual retry and a schedule tick from launching the same Issue at the
+same instant; it is released as soon as the run is registered.
 
 Offboarding is the lifecycle exception: a Workspace with a live headless run
 cannot depart. Once its Catalog row enters `offboarding`, new dispatch is
@@ -255,10 +291,19 @@ use a later collect or one-shot read; agents should not manufacture shell sleep
 loops.
 
 The Issue detail UI treats scheduling as an intrinsic Work item capability.
-`assignee: "@workspace"` recruits a new Session on every fire;
-`assignee: "@resumeId"` keeps one responsible Session. Only the latter
-has a stable owner to ask; Workspace-owned execution exposes the creator and
-each concrete run as separate follow-up targets.
+`assignee: "@new"` recruits one fresh Session on the first fire and then
+rewrites itself to that concrete `@resumeId`; `assignee: "@workspace"`
+recruits a new Session on every fire; `assignee: "@resumeId"` keeps one already
+known responsible Session. The first and third modes produce a stable owner to
+ask; `@workspace` execution exposes the creator and each concrete run as
+separate follow-up targets.
+
+Issue mutation has two complementary histories. Activity records attributable
+field-level changes (and marks the canonical What document as edited without
+copying its body into launcher state), including direct file edits detected by
+the live scanner. The Workspace Git log remains the exact-content rollback
+layer, so agents should make a focused commit after intentionally changing an
+Issue file. Activity stays useful even if that commit is forgotten.
 
 Scheduling never bypasses trading approval. A headless agent may research or
 stage a trade, but execution remains behind UTA/Trading-as-Git permission and
@@ -276,6 +321,7 @@ provenance store.
 | `src/workspaces/issues/board.ts` | Global board/detail projections |
 | `src/workspaces/issues/auto-complete.ts` | Successful one-shot → `done` transition |
 | `src/workspaces/issues/automation-health.ts` | Live schedule/run/owner health projection |
+| `src/workspaces/issues/run-failure.ts` | Read-side scheduled-run termination explanation |
 | `src/workspaces/schedule/scanner.ts` | Workspace scan, due calculation, dispatch |
 | `src/workspaces/schedule/marker-store.ts` | Atomic last-fired persistence |
 | `src/workspaces/service.ts` | Scanner composition, agent resolution, headless registry |
@@ -310,12 +356,14 @@ pnpm vitest run \
   src/webui/routes/headless.spec.ts \
   src/workspaces/issues/declaration.spec.ts \
   src/workspaces/issues/mutate.spec.ts \
+  src/workspaces/issues/comment-delivery.spec.ts \
   src/workspaces/issues/board.spec.ts \
+  src/webui/routes/issues.spec.ts \
   src/workspaces/issues/auto-complete.spec.ts \
   src/workspaces/schedule/scanner.spec.ts
 pnpm test
 ```
 
 For UI changes, run strict UI types and verify Issue board, issue detail,
-schedule projection, run history, and linked Inbox reports in the real browser
-surface.
+Activity comments/replies, the independent Runs section, schedule projection,
+and linked Inbox reports in the real browser surface.

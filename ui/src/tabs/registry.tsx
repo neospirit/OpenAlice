@@ -20,6 +20,8 @@ import { AgentPermissionsPage } from '../pages/AgentPermissionsPage'
 import { AIProviderPage } from '../pages/AIProviderPage'
 import { TradingPage } from '../pages/TradingPage'
 import { MCPPage } from '../pages/MCPPage'
+import { ConnectorsPage } from '../pages/ConnectorsPage'
+import { ConnectorStatusPage } from '../pages/ConnectorStatusPage'
 import { MarketDataPage } from '../pages/MarketDataPage'
 import { NewsCollectorPage } from '../pages/NewsCollectorPage'
 import { UTADetailPage } from '../pages/UTADetailPage'
@@ -30,6 +32,7 @@ import { InboxPage } from '../pages/InboxPage'
 import { InboxPageShell } from '../pages/InboxPageShell'
 import { TrackedPage } from '../pages/TrackedPage'
 import { ChatLandingPage } from '../pages/ChatLandingPage'
+import { WorkspaceManagerPage } from '../pages/WorkspaceManagerPage'
 import { ChatPageShell } from '../pages/ChatPageShell'
 import { PageSidebarShell } from '../pages/PageSidebarShell'
 import { WorkspaceListPage } from '../pages/WorkspaceListPage'
@@ -110,6 +113,13 @@ const tradingAsGitModule: ViewModule<'trading-as-git'> = {
   title: () => 'Trading as Git',
   toUrl: () => '/trading-as-git',
   Component: () => <TradingAsGitPage />,
+}
+
+const connectorsModule: ViewModule<'connectors'> = {
+  kind: 'connectors',
+  title: () => 'Connectors',
+  toUrl: () => '/connectors',
+  Component: () => <ConnectorStatusPage />,
 }
 
 const issueModule: ViewModule<'issue'> = {
@@ -250,6 +260,7 @@ const settingsCategoryTitle: Record<
   'agent-permissions': 'Agent Permissions',
   trading: 'Trading',
   issues: 'Issues',
+  connectors: 'Connectors',
   mcp: 'MCP Server',
   'market-data': 'Market Data',
   'news-collector': 'News Sources',
@@ -262,6 +273,7 @@ function SettingsRouter({ spec }: ViewProps<'settings'>) {
     case 'agent-permissions': return <AgentPermissionsPage />
     case 'trading': return <TradingPage />
     case 'issues': return <IssueSettingsPage />
+    case 'connectors': return <ConnectorsPage />
     case 'mcp': return <MCPPage />
     case 'market-data': return <MarketDataPage />
     case 'news-collector': return <NewsCollectorPage />
@@ -383,6 +395,19 @@ const chatLandingModule: ViewModule<'chat-landing'> = {
   ),
 }
 
+const workspaceManagerModule: ViewModule<'workspace-manager'> = {
+  kind: 'workspace-manager',
+  title: () => 'Workspace Manager',
+  toUrl: (spec) => spec.params.sessionId
+    ? `/chat/manager/s/${encodeURIComponent(spec.params.sessionId)}`
+    : '/chat/manager',
+  Component: ({ spec }) => (
+    <ChatPageShell>
+      <WorkspaceManagerPage spec={spec} />
+    </ChatPageShell>
+  ),
+}
+
 const workspaceListModule: ViewModule<'workspace-list'> = {
   kind: 'workspace-list',
   title: () => 'Workspaces',
@@ -492,6 +517,7 @@ const fileViewerModule: ViewModule<'file-viewer'> = {
 const VIEWS = {
   portfolio: portfolioModule,
   'trading-as-git': tradingAsGitModule,
+  connectors: connectorsModule,
   issue: issueModule,
   'issue-detail': issueDetailModule,
   'tracked-issue-detail': trackedIssueDetailModule,
@@ -509,6 +535,7 @@ const VIEWS = {
   inbox: inboxModule,
   tracked: trackedModule,
   'chat-landing': chatLandingModule,
+  'workspace-manager': workspaceManagerModule,
   'workspace-list': workspaceListModule,
   workspace: workspaceModule,
   'template-catalog': templateCatalogModule,

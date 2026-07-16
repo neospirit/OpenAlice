@@ -10,6 +10,8 @@ import { join } from 'node:path';
 
 import { createWorkspaceRoutes } from './workspaces.js';
 import { HeadlessCapacityError, type WorkspaceService } from '../../workspaces/service.js';
+import { TemplateUpgradeError } from '../../workspaces/template-upgrade.js';
+import { WorkspaceAbsorbError } from '../../workspaces/workspace-absorb.js';
 import { readWorkspaceMetadata } from '../../workspaces/workspace-metadata.js';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -35,6 +37,8 @@ function build(
     resumeIdentity?: any;
     sessionDirectory?: any;
     lifecycle?: any;
+    templateUpgrades?: any;
+    workspaceAbsorbs?: any;
   } = {},
 ) {
   const claude = {
@@ -87,6 +91,24 @@ function build(
     restore: vi.fn(async () => ({ ok: true, workspace: { id: 'ws-1', lifecycle: 'active' }, assessment: {} })),
     purge: vi.fn(async () => ({ ok: true, workspace: { id: 'ws-1', lifecycle: 'purged' }, assessment: {} })),
   };
+  const templateUpgrades = opts.templateUpgrades ?? {
+    plan: vi.fn(async () => ({ workspaceId: 'ws-1', planDigest: 'digest-1' })),
+    apply: vi.fn(async () => ({
+      workspaceId: 'ws-1', fromVersion: '1.0.0', toVersion: '2.0.0',
+      commit: 'abc123', changedPaths: ['README.md'], keptPaths: [],
+    })),
+  };
+  const workspaceAbsorbs = opts.workspaceAbsorbs ?? {
+    plan: vi.fn(async () => ({
+      source: { id: 'ws-2', tag: 'source' },
+      target: { id: 'ws-1', tag: 'target' },
+      planDigest: 'absorb-digest-1',
+    })),
+    apply: vi.fn(async () => ({
+      sourceWorkspaceId: 'ws-2', targetWorkspaceId: 'ws-1', commit: 'absorb123',
+      changedPaths: ['research/new.md'], skippedPaths: [], departedDir: '/departed/ws-2',
+    })),
+  };
   const svc = {
     registry: { get: (id: string) => (id === 'ws-1' ? meta : undefined) },
     adapters: { get: (a: string) => adapters[a] },
@@ -101,6 +123,8 @@ function build(
     getAgentRuntimeReadiness,
     probeAgentRuntimeReadiness,
     lifecycle,
+    templateUpgrades,
+    workspaceAbsorbs,
     sessionDirectory: vi.fn(async (id: string) => id === 'ws-1'
       ? (opts.sessionDirectory ?? {
           workspace: { id: 'ws-1', tag: 'demo' },
@@ -119,6 +143,8 @@ function build(
     getAgentRuntimeReadiness,
     probeAgentRuntimeReadiness,
     lifecycle,
+    templateUpgrades,
+    workspaceAbsorbs,
   };
 }
 
@@ -222,6 +248,118 @@ describe('Workspace lifecycle routes', () => {
     const { app } = build({ lifecycle });
     expect((await del(app, '/departed/ws-old')).status).toBe(200);
     expect(lifecycle.purge).toHaveBeenCalledWith('ws-old');
+  });
+});
+
+describe('Workspace template upgrade routes', () => {
+  it('returns a review plan and applies only the accepted resolution values', async () => {
+    const templateUpgrades = {
+      plan: vi.fn(async () => ({ workspaceId: 'ws-1', planDigest: 'digest-1' })),
+      apply: vi.fn(async () => ({
+        workspaceId: 'ws-1', fromVersion: '1.0.0', toVersion: '2.0.0',
+        commit: 'abc123', changedPaths: ['README.md'], keptPaths: ['AGENTS.md'],
+      })),
+    };
+    const { app } = build({ templateUpgrades });
+
+    expect(await get(app, '/ws-1/template-upgrade')).toMatchObject({
+      status: 200,
+      body: { plan: { planDigest: 'digest-1' } },
+    });
+    const applied = await post(app, '/ws-1/template-upgrade', {
+      planDigest: 'digest-1',
+      resolutions: { 'AGENTS.md': 'workspace', 'README.md': 'anything-else' },
+    });
+    expect(applied.status).toBe(200);
+    expect(templateUpgrades.apply).toHaveBeenCalledWith('ws-1', {
+      planDigest: 'digest-1',
+      resolutions: { 'AGENTS.md': 'workspace' },
+    });
+  });
+
+  it('maps a changed preview to a recoverable 409 with the refreshed plan', async () => {
+    const refreshed = { workspaceId: 'ws-1', planDigest: 'digest-2' } as any;
+    const templateUpgrades = {
+      plan: vi.fn(),
+      apply: vi.fn(async () => {
+        throw new TemplateUpgradeError('stale_plan', 'Review the refreshed plan.', refreshed);
+      }),
+    };
+    const { app } = build({ templateUpgrades });
+    const result = await post(app, '/ws-1/template-upgrade', { planDigest: 'digest-1' });
+
+    expect(result).toMatchObject({
+      status: 409,
+      body: { error: 'stale_plan', plan: { planDigest: 'digest-2' } },
+    });
+  });
+
+  it('rejects apply requests without a reviewed plan digest', async () => {
+    const { app, templateUpgrades } = build();
+    const result = await post(app, '/ws-1/template-upgrade', {});
+    expect(result).toMatchObject({ status: 400, body: { error: 'bad_request' } });
+    expect(templateUpgrades.apply).not.toHaveBeenCalled();
+  });
+});
+
+describe('Workspace absorb routes', () => {
+  it('previews a direction and passes only supported conflict resolutions', async () => {
+    const workspaceAbsorbs = {
+      plan: vi.fn(async () => ({
+        source: { id: 'ws-2', tag: 'source' }, target: { id: 'ws-1', tag: 'target' },
+        planDigest: 'absorb-digest-1',
+      })),
+      apply: vi.fn(async () => ({
+        sourceWorkspaceId: 'ws-2', targetWorkspaceId: 'ws-1', commit: 'abc123',
+        changedPaths: ['research/new.md'], skippedPaths: [], departedDir: '/departed/ws-2',
+      })),
+    };
+    const { app } = build({ workspaceAbsorbs });
+
+    expect(await get(app, '/ws-1/absorb/ws-2')).toMatchObject({
+      status: 200,
+      body: { plan: { planDigest: 'absorb-digest-1' } },
+    });
+    const applied = await post(app, '/ws-1/absorb/ws-2', {
+      planDigest: 'absorb-digest-1',
+      resolutions: {
+        'research/a.md': 'both',
+        'research/b.md': 'source',
+        'research/c.md': 'target',
+        'research/d.md': 'delete',
+      },
+    });
+    expect(applied.status).toBe(200);
+    expect(workspaceAbsorbs.apply).toHaveBeenCalledWith({
+      targetWorkspaceId: 'ws-1',
+      sourceWorkspaceId: 'ws-2',
+      planDigest: 'absorb-digest-1',
+      resolutions: {
+        'research/a.md': 'both',
+        'research/b.md': 'source',
+        'research/c.md': 'target',
+      },
+    });
+  });
+
+  it('returns a refreshed plan when the reviewed digest is stale', async () => {
+    const refreshed = { source: { id: 'ws-2' }, target: { id: 'ws-1' }, planDigest: 'new' } as any;
+    const workspaceAbsorbs = {
+      plan: vi.fn(),
+      apply: vi.fn(async () => {
+        throw new WorkspaceAbsorbError(
+          'stale_plan',
+          'One Workspace changed after preview.',
+          refreshed,
+        );
+      }),
+    };
+    const { app } = build({ workspaceAbsorbs });
+    const result = await post(app, '/ws-1/absorb/ws-2', { planDigest: 'old' });
+    expect(result).toMatchObject({
+      status: 409,
+      body: { error: 'stale_plan', plan: { planDigest: 'new' } },
+    });
   });
 });
 
@@ -695,5 +833,109 @@ describe('WebPi surface routes', () => {
     const result = await get(app, `/ws-1/sessions/${TOKEN}/webpi?revision=1`);
     expect(result.status).toBe(200);
     expect(result.body).toEqual({ unchanged: true, revision: 1 });
+  });
+});
+
+describe('Workspace manager surface routes', () => {
+  it('starts a launcher-owned Pi conversation directly in WebPi with the manager contract', async () => {
+    const meta = {
+      id: 'workspace-manager',
+      tag: 'Workspace Manager',
+      dir: '/floor/workspaces',
+      agents: ['pi'],
+      createdAt: new Date(0).toISOString(),
+    };
+    let createdRecord: any = null;
+    const adapter = {
+      id: 'pi',
+      namePrefix: 'p',
+      capabilities: { resumeById: true },
+      bootstrap: vi.fn(async () => undefined),
+    };
+    const snapshot = {
+      recordId: 'pi-manager-test',
+      wsId: meta.id,
+      resumeId: 'resume-manager-test',
+      pid: 91,
+      startedAt: 1,
+      phase: 'working',
+      state: {},
+      messages: [],
+      streamingMessage: null,
+      error: null,
+      stderrTail: '',
+      revision: 1,
+    };
+    const startWebPiSession = vi.fn(async () => snapshot);
+    const prompt = vi.fn(async () => snapshot);
+    const disposeToken = vi.fn(() => true);
+    const svc = {
+      managerWorkspace: meta,
+      registry: {
+        list: () => [{ id: 'ws-1' }, { id: 'ws-2' }],
+        get: () => undefined,
+      },
+      adapters: { get: (id: string) => id === 'pi' ? adapter : undefined },
+      resolveAdapter: () => adapter,
+      getAgentRuntimeReadiness: () => ({
+        agents: { pi: { ready: true, source: 'managed-runtime' } },
+      }),
+      resumeRegistry: {
+        get: vi.fn(() => null),
+        ensure: vi.fn(async () => ({ resumeId: 'resume-manager-test' })),
+      },
+      sessionRegistry: {
+        ensureLoaded: vi.fn(async () => undefined),
+        findById: vi.fn(() => undefined),
+        nextName: vi.fn(() => 'p1'),
+        create: vi.fn(async (record: any) => { createdRecord = record; }),
+        get: vi.fn(() => createdRecord),
+        listFor: vi.fn(() => createdRecord ? [createdRecord] : []),
+        update: vi.fn(async (_wsId: string, _recordId: string, patch: any) => {
+          Object.assign(createdRecord, patch);
+          return createdRecord;
+        }),
+        remove: vi.fn(async () => undefined),
+      },
+      pool: {
+        get: vi.fn(() => undefined),
+        spawn: vi.fn((_wsId: string, ctx: any) => ({
+          recordId: ctx.recordId,
+          wsId: meta.id,
+          name: ctx.recordName,
+          pid: 90,
+          startedAt: 1,
+        })),
+        disposeToken,
+      },
+      startWebPiSession,
+      webPi: { get: vi.fn(() => snapshot), prompt },
+      config: { launcherRepoRoot: '/repo' },
+    } as unknown as WorkspaceService;
+    const app = createWorkspaceRoutes(svc);
+
+    expect(await get(app, '/manager')).toMatchObject({
+      status: 200,
+      body: { manager: { id: 'workspace-manager', activeWorkspaceCount: 2, sessions: [] } },
+    });
+
+    const result = await post(app, '/manager/quick-start', { prompt: 'Audit the floor.' });
+    expect(result.status).toBe(201);
+    expect(result.body).toMatchObject({
+      manager: { id: 'workspace-manager', activeWorkspaceCount: 2 },
+      session: { wsId: 'workspace-manager', agent: 'pi', surface: 'webpi' },
+      snapshot: { phase: 'working' },
+    });
+    expect(disposeToken).toHaveBeenCalledWith(createdRecord.id, 'switch fresh manager Session to WebPi');
+    expect(startWebPiSession).toHaveBeenCalledWith(
+      meta,
+      createdRecord,
+      expect.objectContaining({
+        approveProject: true,
+        appendSystemPrompt: expect.stringContaining('Workspace Manager'),
+        skills: [join('/repo', 'default', 'skills', 'workspace-manager')],
+      }),
+    );
+    expect(prompt).toHaveBeenCalledWith(createdRecord.id, 'Audit the floor.');
   });
 });

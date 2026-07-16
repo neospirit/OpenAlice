@@ -45,7 +45,7 @@ export function inferCredentialVendor(opts: { agent?: string; baseUrl?: string }
  * `x-api-key` is Anthropic's first-party standard and the safe default;
  * `bearer` sends `Authorization: Bearer`, which anthropic-compatible *gateways*
  * require. An explicit `authMode` always wins. Fallback inference is deliberately
- * narrow: confirmed bearer-only gateways (MiniMax international and LongCat's
+ * narrow: confirmed bearer-only gateways (MiniMax and LongCat's
  * Anthropic compatibility endpoint) are auto-promoted because they *reject*
  * x-api-key with a 401. Other gateways stay at the default until confirmed —
  * over-promoting would silently break a working x-api-key setup.
@@ -54,6 +54,6 @@ export function resolveAnthropicAuthMode(
   opts: { authMode?: 'x-api-key' | 'bearer'; baseUrl?: string },
 ): 'x-api-key' | 'bearer' {
   if (opts.authMode) return opts.authMode
-  if (/api\.minimax\.io|api\.longcat\.chat/i.test(opts.baseUrl ?? '')) return 'bearer'
+  if (/api\.minimaxi\.com|api\.minimax\.io|api\.longcat\.chat/i.test(opts.baseUrl ?? '')) return 'bearer'
   return 'x-api-key'
 }

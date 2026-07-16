@@ -1,5 +1,4 @@
-import type { HeadlessTaskRecord } from '../../api/headless'
-import type { IssueComment, IssueDetail, IssuePriority, IssueSnapshot, IssueStatus } from '../../api/issues'
+import type { IssueComment, IssueDetail, IssuePriority, IssueRunRecord, IssueSnapshot, IssueStatus } from '../../api/issues'
 import { demoInboxEntries } from './inbox'
 
 // GET /api/issues aggregates every workspace's declared issues by SCANNING
@@ -57,7 +56,11 @@ export const demoIssuesSnapshot: IssueSnapshot = {
           when: { kind: 'every', every: '1h' },
           lastFiredAtMs: now - HOUR / 2,
           nextDueAtMs: now + HOUR / 2,
-          automationHealth: { state: 'failed', message: 'Latest scheduled run failed.', latestTaskId: 'demo-run-thesis-failed' },
+          automationHealth: {
+            state: 'interrupted',
+            message: 'The 30m watchdog ran 14m late. The computer likely slept or OpenAlice was paused; this run was not automatically retried.',
+            latestTaskId: 'demo-run-thesis-1',
+          },
         },
         // Pure work item — no `when`, scanner ignores it, board still shows it.
         {
@@ -174,7 +177,7 @@ interface IssueDetailExtras {
   /** Scheduling frontmatter `agent` (adapter id), if set. */
   agent?: string
   /** This issue's headless runs, newest-first (Activity feed). */
-  runs: HeadlessTaskRecord[]
+  runs: IssueRunRecord[]
 }
 
 // Keyed by `${wsId}/${id}`. Issues absent here fall back to a generic body + no
@@ -280,8 +283,18 @@ const demoIssueExtras: Record<string, IssueDetailExtras> = {
         wsId: 'demo-ws-auto-quant',
         agent: 'claude',
         prompt: 'Re-check every active thesis against the latest quotes; flag invalidations.',
-        status: 'running',
-        startedAt: now - 2 * 60_000,
+        startedAt: now - 44 * 60_000,
+        finishedAt: now,
+        durationMs: 44 * 60_000,
+        killed: true,
+        signal: 'SIGKILL',
+        status: 'failed',
+        failure: {
+          kind: 'system_paused',
+          title: 'Computer or launcher was paused',
+          message: 'The 30m watchdog ran 14m late. The computer likely slept or OpenAlice was paused; this run was not automatically retried.',
+          retryable: true,
+        },
       },
       {
         taskId: 'demo-run-thesis-2',
@@ -440,15 +453,18 @@ export function demoIssueDetail(wsId: string, id: string): IssueDetail | null {
     ? `${explicitWhat}\n\n## Context\n\n${legacyBody}`
     : explicitWhat || legacyBody || boardIssue.title
   const runs = extras?.runs ?? []
+  const comments = demoIssueComments[`${wsId}/${id}`] ?? []
   return {
     issue: {
       ...boardIssue,
       what,
       ...(extras?.agent ? { agent: extras.agent } : {}),
     },
-    comments: demoIssueComments[`${wsId}/${id}`] ?? [],
+    comments,
     runs,
-    activity: runs.map((run) => ({ kind: 'run' as const, id: run.taskId, at: run.startedAt, run })),
+    activity: comments
+      .map((comment) => ({ kind: 'comment' as const, id: comment.id, at: Date.parse(comment.at), comment }))
+      .sort((a, b) => a.at - b.at),
     // issue→inbox direction of the cross-link: every inbox report this issue
     // produced (server-stamped origin.issueId === id, this workspace), newest
     // first. Mirrors the real route's `inboxReportsFor` (webui/routes/issues.ts).
@@ -518,7 +534,66 @@ export function demoIssueAddComment(
   if (!boardIssue) return null
   const key = `${wsId}/${id}`
   const comments = demoIssueComments[key] ?? []
-  comments.push({ id: `demo-comment-${comments.length + 1}`, author, at: new Date().toISOString(), markdown: text })
+  const commentId = `demo-comment-${comments.length + 1}`
+  const ownerResumeId = boardIssue.assignee.startsWith('@resume-') ? boardIssue.assignee.slice(1) : null
+  const taskId = `demo-comment-run-${comments.length + 1}`
+  comments.push({
+    id: commentId,
+    author,
+    at: new Date().toISOString(),
+    markdown: text,
+    ...(ownerResumeId ? {
+      delivery: { state: 'pending' as const, targetResumeId: ownerResumeId, taskId },
+    } : {}),
+  })
   demoIssueComments[key] = comments
+  if (ownerResumeId) {
+    window.setTimeout(() => {
+      const source = comments.find((comment) => comment.id === commentId)
+      if (!source || source.delivery?.state !== 'pending') return
+      const replyCommentId = `demo-reply-${commentId}`
+      source.delivery = {
+        state: 'replied',
+        targetResumeId: ownerResumeId,
+        taskId,
+        replyCommentId,
+      }
+      comments.push({
+        id: replyCommentId,
+        author: `@${ownerResumeId}`,
+        at: new Date().toISOString(),
+        markdown: 'I saw the comment and will carry this context into the next pass.',
+        replyTo: commentId,
+      })
+    }, 900)
+  }
+  return demoIssueDetail(wsId, id)
+}
+
+/** POST-retry backing: add a fresh running execution without changing cadence. */
+export function demoIssueRetry(wsId: string, id: string): IssueDetail | null {
+  const boardIssue = findBoardIssue(wsId, id)
+  const extras = demoIssueExtras[`${wsId}/${id}`]
+  const latest = extras?.runs[0]
+  if (!boardIssue?.when || !extras || !latest || (latest.status !== 'failed' && latest.status !== 'interrupted')) {
+    return null
+  }
+  const run: IssueRunRecord = {
+    taskId: `demo-retry-${Date.now()}`,
+    resumeId: `demo-resume-retry-${Date.now()}`,
+    resumable: false,
+    wsId,
+    issueId: id,
+    agent: boardIssue.agent ?? extras.agent ?? latest.agent,
+    prompt: latest.prompt,
+    status: 'running',
+    startedAt: Date.now(),
+  }
+  extras.runs.unshift(run)
+  boardIssue.automationHealth = {
+    state: 'running',
+    message: 'A scheduled run is in progress.',
+    latestTaskId: run.taskId,
+  }
   return demoIssueDetail(wsId, id)
 }

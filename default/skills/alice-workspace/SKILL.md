@@ -4,8 +4,8 @@ description: >
   Use the `alice-workspace` CLI for collaboration and provenance: Inbox
   delivery, the global Issue board, tracked entities, peer files, and asking an
   attributable product Session. Use it when work must be surfaced, remembered,
-  assigned, or followed back to the Agent that produced it. Read live help;
-  never guess flags or use `issue comment` as a substitute for `issue ask`.
+  assigned, or followed back to the Agent that produced it. Read live help and
+  choose comments for durable Issue discussion versus asks for historical inquiry.
 ---
 
 # Collaboration — `alice-workspace`
@@ -18,13 +18,18 @@ Choose the verb from the intent, not from whichever object you happen to have:
 | Read what desks already surfaced | `inbox read` |
 | Ask why one Inbox entry was produced | `inbox ask` |
 | Inspect the shared work board | `issue list` / `issue show` |
-| Ask an Issue's creator, owner, or selected run | `issue ask` |
-| Record a note on this Workspace's own Issue | `issue comment` |
+| Ask an Issue's creator or selected historical run | `issue ask` |
+| Discuss this Workspace's own Issue; notify its fixed owner | `issue comment` |
 | Ask by a known product Session/Workspace only when no business object exists | `conversation ask` |
+| Bring this desk's managed instructions and skills up to date | `template upgrade` |
+| Inventory every active desk before coordinating the floor | `peer list` |
 
-`issue comment` is a structured note for the human-visible board. It is a
-local write and **does not message or resume another agent**. When the goal is
-to obtain an answer, use `inbox ask` or `issue ask`, normally with `--await`.
+`issue comment` is the durable conversation entry for this Workspace's own
+Issue. If the Issue has an exact `@resumeId` assignee, a comment from somebody
+else resumes that owner in the background and records the final reply in the
+Activity timeline. `@workspace`-owned Issues keep comments as notes and do not
+recruit a random worker. Use `issue ask` when interrogating the creator or a
+specific historical run without adding a comment.
 
 **Hand finished work back to the user** — this is the outbound channel. It posts
 to the user's Inbox tab:
@@ -63,6 +68,8 @@ are reachable. Resolve the peer's absolute dir by its `workspaceId`, then use yo
 own file tools:
 
 ```bash
+# active office-floor inventory (ids, templates, agents, live workload counts)
+alice-workspace peer list
 # --id is the `workspaceId` from an inbox_read entry (a uuid), e.g.:
 alice-workspace peer path --id 550e8400-e29b-41d4-a716-446655440000
 alice-workspace peer sessions --id 550e8400-e29b-41d4-a716-446655440000
@@ -164,7 +171,7 @@ alice-workspace issue show --id <name> --mode detailed  # every execution prompt
 alice-workspace issue create --title "…"    # a new issue on THIS workspace's board
 alice-workspace issue create --title "…" --when '{"kind":"every","every":"1h"}' --assignee @me
 alice-workspace issue update --id <id> --status in_progress
-alice-workspace issue comment --id <id> --text "progress note / finding"
+alice-workspace issue comment --id <id> --text "question / progress note / finding"
 alice-workspace signature show               # your @resumeId for standalone Markdown
 ```
 
@@ -176,8 +183,43 @@ the whole board (all workspaces); `create` / `update` / `comment` write **this**
 workspace's own `.alice/issues/` files (changing a peer's board is the
 human-approved peer-edit path). The full on-disk file model + self-scheduling
 (an issue with a `when` fires a headless run) lives in the **`self-scheduling`**
-skill. `assignee` is the single ownership and dispatch contract: `@workspace`
-recruits a new Session each fire, `@me` resolves to the caller, and an exact
-`@resumeId` keeps one accountable product Session. Issue/Inbox CLI actions are
-signed automatically. End standalone reports with `Signed-by: @resumeId`
+skill. `assignee` is the single ownership and dispatch contract: `@new`
+recruits once and then keeps that first Session, `@workspace` recruits a new
+Session each fire, `@me` resolves to the caller, and an exact `@resumeId` keeps
+one accountable product Session. Commit intentional Issue-file changes as a
+focused Git change; Activity remains an audit fallback, while Git is the exact
+rollback history. Issue/Inbox CLI actions are signed automatically. End standalone reports with `Signed-by: @resumeId`
 (copy it from `signature show`) so another Agent can return to the author.
+
+**Upgrade this Workspace's managed template assets** — preview first, then
+apply explicitly:
+
+```bash
+alice-workspace template upgrade
+alice-workspace template upgrade --apply
+alice-workspace template upgrade --id <workspaceId>       # manage a paused peer
+alice-workspace template upgrade --id <workspaceId> --apply
+```
+
+The default call is read-only. It compares this Workspace with the current
+template and lists ready changes, protected local customizations, blockers, and
+conflicts. `--apply` re-plans and runs the launcher's transactional upgrade;
+there is no HTTP endpoint or plan digest to copy by hand. Omit `--id` for this
+Workspace, or pass a peer Workspace id when interactively managing another
+desk. Applying to the current Workspace from one of its own live Sessions will
+correctly remain blocked; pause it or use a separate manager Workspace. A
+headless run may preview a peer but cannot apply a cross-Workspace upgrade.
+
+If a managed file changed both locally and in the template, resolve every
+conflict explicitly before applying:
+
+```bash
+alice-workspace template upgrade --mode detailed
+alice-workspace template upgrade --id <workspaceId> --apply \
+  --keep-workspace AGENTS.md \
+  --use-template .agents/skills/alice-workspace/SKILL.md
+```
+
+Both resolution flags are repeatable. Upgrade never adopts research, reports,
+Issues, credentials, runtime state, or other user files. It also refuses to run
+while Sessions/headless work are active or unrelated changes are staged.

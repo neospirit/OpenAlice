@@ -90,7 +90,7 @@ function loadAiCredentialConfig(slug, agent) {
     ? ['openai-responses']
     : agent === 'claude'
       ? ['anthropic']
-      : ['openai-chat', 'anthropic', 'openai-responses']
+      : ['google-generative-ai', 'openai-chat', 'anthropic', 'openai-responses']
   if (!compatibleWires.some((wire) => wire in wires)) {
     throw new Error(`AI credential ${slug} cannot drive ${agent}; missing a compatible wire`)
   }

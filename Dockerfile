@@ -22,27 +22,46 @@ RUN corepack enable && corepack prepare pnpm@11.7.0 --activate
 # of `pnpm install` and must already exist on disk.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 COPY scripts/fix-pty-perms.mjs ./scripts/fix-pty-perms.mjs
+COPY packages/cli/package.json packages/cli/
 COPY packages/guardian-runtime/package.json packages/guardian-runtime/
+COPY packages/connector-protocol/package.json packages/connector-protocol/
 COPY packages/ibkr/package.json packages/ibkr/
 COPY packages/opentypebb/package.json packages/opentypebb/
 COPY packages/uta-protocol/package.json packages/uta-protocol/
+COPY packages/uta-broker-alpaca/package.json packages/uta-broker-alpaca/
+COPY packages/uta-broker-ccxt/package.json packages/uta-broker-ccxt/
+COPY packages/uta-broker-ibkr/package.json packages/uta-broker-ibkr/
+COPY packages/uta-broker-leverup/package.json packages/uta-broker-leverup/
+COPY packages/uta-broker-longbridge/package.json packages/uta-broker-longbridge/
 COPY services/uta/package.json services/uta/
+COPY services/connector/package.json services/connector/
 COPY ui/package.json ui/
 
 RUN pnpm install --frozen-lockfile
 
 # Source + build. Mirrors root `pnpm build` (turbo: workspace packages + UI
-# Vite build + services/uta, then `tsup` bundles Alice into `dist/main.js`).
+# Vite build + optional services, then `tsup` bundles Alice into `dist/main.js`).
 # `.dockerignore` removes `apps/desktop`, so Electron is not a discovered
 # workspace and cannot trigger a late dependency install in this server build.
 COPY . .
-RUN pnpm exec turbo run build \
+RUN pnpm exec turbo run build --filter=!./packages/uta-broker-* \
     && pnpm exec tsup src/main.ts --format esm --dts
 
-# Strip dev deps (typescript, turbo, vitest, vite, …) before the runtime
-# stage harvests node_modules — a multi-hundred-MB cut. `CI=true`
-# satisfies pnpm's "won't remove modules without TTY confirmation" check.
-RUN CI=true pnpm prune --prod --config.ignore-scripts=true
+# Produce three dependency closures instead of pruning the whole workspace.
+# A workspace-wide production prune would retain the optional Broker Pack
+# workspaces and their SDKs even though no production process imports them.
+RUN pnpm --config.inject-workspace-packages=true --filter open-alice deploy --prod /runtime/root \
+    && pnpm --config.inject-workspace-packages=true --filter @traderalice/uta-service deploy --prod /runtime/uta \
+    && pnpm --config.inject-workspace-packages=true --filter @traderalice/connector-service deploy --prod /runtime/connector \
+    && if find /runtime/root/node_modules /runtime/uta/node_modules /runtime/connector/node_modules \
+        -type d \( \
+          -path '*/node_modules/ccxt' -o \
+          -path '*/node_modules/longbridge' -o \
+          -path '*/node_modules/@alpacahq/alpaca-trade-api' \
+        \) -print -quit | grep -q .; then \
+      echo 'Broker SDK leaked into the core Docker dependency closures' >&2; \
+      exit 1; \
+    fi
 
 # ─── runtime stage ────────────────────────────────────────
 FROM node:22-trixie-slim AS runtime
@@ -85,10 +104,10 @@ RUN npm install -g \
     && npm cache clean --force
 
 # Production artifacts. The Guardian script (`scripts/guardian/prod.mjs`)
-# expects `dist/main.js` (Alice) and `services/uta/dist/uta.js` (UTA)
-# next to each other at /app.
+# expects Alice, UTA and Connector Service artifacts next to each other at /app.
 COPY --from=build /src/dist                       ./dist
 COPY --from=build /src/services/uta/dist          ./services/uta/dist
+COPY --from=build /src/services/connector/dist    ./services/connector/dist
 COPY --from=build /src/ui/dist                    ./ui/dist
 COPY --from=build /src/default                    ./default
 COPY --from=build /src/src/workspaces/templates   ./src/workspaces/templates
@@ -104,21 +123,17 @@ RUN install -m 0755 /app/src/workspaces/cli/bin/alice /usr/local/bin/alice \
     && install -m 0755 /app/src/workspaces/cli/bin/alice-workspace /usr/local/bin/alice-workspace \
     && install -m 0755 /app/src/workspaces/cli/bin/traderhub /usr/local/bin/traderhub \
     && install -m 0644 /app/src/workspaces/cli/bin/openalice-cli.cjs /usr/local/bin/openalice-cli.cjs
-# tsup bundles backend deps into the entry files where possible, but
-# native modules (node-pty, longbridge, etc.) stay as runtime requires.
-COPY --from=build /src/node_modules               ./node_modules
+# Alice, UTA Core, and Connector each receive only their own production
+# dependency closure. Live broker SDKs are downloaded later as Broker Packs.
+COPY --from=build /runtime/root/node_modules      ./node_modules
 COPY --from=build /src/package.json               ./package.json
-# Workspace packages — `node_modules/@traderalice/*` are pnpm symlinks
-# resolving to `packages/*/dist` via relative paths. Without these,
-# `import('@traderalice/ibkr')` from the bundled `dist` files fails
-# with ERR_MODULE_NOT_FOUND at startup.
-COPY --from=build /src/packages                   ./packages
+# Internal runtime packages are injected into the production dependency
+# closures above. Their manifests explicitly publish `dist`, so this image
+# does not need the source workspace tree (or the Broker Pack workspaces).
 COPY --from=build /src/services/uta/package.json  ./services/uta/package.json
-# UTA's broker SDK deps (ccxt / longbridge / alpaca-trade-api) live in
-# services/uta/package.json after Step 8 cleanup, so Node resolution
-# from the bundled `services/uta/dist/uta.js` needs the local
-# node_modules tree alongside (pnpm symlinks into ../../node_modules/.pnpm).
-COPY --from=build /src/services/uta/node_modules  ./services/uta/node_modules
+COPY --from=build /src/services/connector/package.json ./services/connector/package.json
+COPY --from=build /runtime/uta/node_modules       ./services/uta/node_modules
+COPY --from=build /runtime/connector/node_modules ./services/connector/node_modules
 # Guardian supervisor lives in the scripts/ tree; only the prod entry is
 # needed at runtime, but copying the directory keeps the file path the
 # CMD references stable.
@@ -137,6 +152,7 @@ ENV OPENALICE_APP_HOME=/app \
     OPENALICE_WEB_PORT=47331 \
     OPENALICE_MCP_PORT=47332 \
     OPENALICE_UTA_PORT=47333 \
+    OPENALICE_CONNECTOR_PORT=47334 \
     OPENALICE_BIND_HOST=0.0.0.0
 
 VOLUME ["/data"]

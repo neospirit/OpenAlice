@@ -58,6 +58,12 @@ const ONBOARDING_TEST_PRESET: Preset = {
   category: 'custom',
   defaultName: 'OpenAlice Test Provider',
   hint: 'Development-only. This provider exists only in onboarding test mode and never calls an external AI service.',
+  setup: {
+    apiKeyLabel: 'Onboarding test API key',
+    apiKeyPlaceholder: 'oa_test_ok',
+    apiKeyHelp: 'This development-only key is prefilled and talks only to the local onboarding mock.',
+    modelHelp: 'The local mock exposes one fixed model so the full test-and-save flow can run offline.',
+  },
   schema: {
     type: 'object',
     properties: {
@@ -65,6 +71,7 @@ const ONBOARDING_TEST_PRESET: Preset = {
       model: {
         type: 'string',
         title: 'Model',
+        default: 'openalice-onboarding-test',
         oneOf: [{ const: 'openalice-onboarding-test', title: 'Onboarding Mock' }],
       },
     },

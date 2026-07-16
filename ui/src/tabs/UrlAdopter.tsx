@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { Navigate, Route, Routes, useParams, useSearchParams } from 'react-router-dom'
 import { useWorkspace } from './store'
-import { specEquals, type ActivitySection, type ViewSpec } from './types'
+import { isDevTab, specEquals, type ActivitySection, type ViewSpec } from './types'
 import { getView } from './registry'
 
 /**
@@ -38,6 +38,8 @@ export function UrlAdopter() {
             /chat/:channelId (the retired traditional-chat channels) still
             redirects to Inbox so stale bookmarks land on a live surface. */}
         <Route path="/chat" element={<AdoptStatic spec={{ kind: 'chat-landing', params: {} }} />} />
+        <Route path="/chat/manager" element={<AdoptStatic spec={{ kind: 'workspace-manager', params: {} }} />} />
+        <Route path="/chat/manager/s/:sessionId" element={<AdoptWorkspaceManager />} />
         <Route path="/chat/workspaces/:wsId" element={<AdoptChatWorkspace />} />
         <Route path="/chat/workspaces/:wsId/s/:sessionId" element={<AdoptChatWorkspace />} />
         <Route path="/chat/:channelId" element={<Navigate to="/inbox" replace />} />
@@ -55,6 +57,7 @@ export function UrlAdopter() {
         <Route path="/market/boards/:board" element={<AdoptMarketBoard />} />
         <Route path="/market/:assetClass/:symbol" element={<AdoptMarketDetail />} />
         <Route path="/trading-as-git" element={<AdoptStatic spec={{ kind: 'trading-as-git', params: {} }} />} />
+        <Route path="/connectors" element={<AdoptStatic spec={{ kind: 'connectors', params: {} }} />} />
 
         {/* Settings — one entry per category */}
         <Route path="/settings" element={<AdoptStatic spec={{ kind: 'settings', params: { category: 'general' } }} />} />
@@ -65,6 +68,7 @@ export function UrlAdopter() {
         <Route path="/settings/mcp" element={<AdoptStatic spec={{ kind: 'settings', params: { category: 'mcp' } }} />} />
         <Route path="/settings/market-data" element={<AdoptStatic spec={{ kind: 'settings', params: { category: 'market-data' } }} />} />
         <Route path="/settings/news-collector" element={<AdoptStatic spec={{ kind: 'settings', params: { category: 'news-collector' } }} />} />
+        <Route path="/settings/connectors" element={<AdoptStatic spec={{ kind: 'settings', params: { category: 'connectors' } }} />} />
         <Route path="/settings/uta/:id" element={<AdoptUtaDetail />} />
 
         {/* Dev */}
@@ -184,8 +188,7 @@ function AdoptUtaDetail() {
 
 function AdoptDev() {
   const { tab } = useParams<{ tab: string }>()
-  const valid: ReadonlyArray<string> = ['tools', 'onboarding', 'snapshots', 'logs', 'simulator']
-  if (!tab || !valid.includes(tab)) return <Navigate to="/dev/tools" replace />
+  if (!tab || !isDevTab(tab)) return <Navigate to="/dev/tools" replace />
   return (
     <AdoptStatic
       spec={{
@@ -224,6 +227,12 @@ function AdoptChatWorkspace() {
   const params: Extract<ViewSpec, { kind: 'workspace' }>['params'] = { wsId, source: 'chat' }
   if (sessionId) params.sessionId = sessionId
   return <AdoptStatic spec={{ kind: 'workspace', params }} />
+}
+
+function AdoptWorkspaceManager() {
+  const { sessionId } = useParams<{ sessionId: string }>()
+  if (!sessionId) return <Navigate to="/chat/manager" replace />
+  return <AdoptStatic spec={{ kind: 'workspace-manager', params: { sessionId } }} />
 }
 
 function AdoptTemplateDetail() {
@@ -266,12 +275,14 @@ function specToSection(spec: ViewSpec): ActivitySection {
     case 'tracked':            return 'tracked'
     case 'tracked-issue-detail': return 'tracked'
     case 'chat-landing':       return 'chat'
+    case 'workspace-manager':  return 'chat'
     case 'workspace':          return spec.params.source === 'chat' ? 'chat' : 'workspaces'
     case 'workspace-list':
     case 'template-catalog':
     case 'template-detail':
     case 'file-viewer':        return 'workspaces'
     case 'trading-as-git':     return 'trading-as-git'
+    case 'connectors':         return 'connectors'
     case 'portfolio':
     case 'uta-detail':         return 'portfolio'
     case 'issue':

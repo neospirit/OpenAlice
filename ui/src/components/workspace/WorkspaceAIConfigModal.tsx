@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
-import { Bot, Info, Settings, X } from 'lucide-react'
+import { Bot, GitMerge, Info, Layers3, Settings, X } from 'lucide-react'
 import {
   getAgentConfig,
   listCredentials,
@@ -23,10 +23,22 @@ import {
   type SavedCredential,
 } from './api'
 import { api, type Preset, type WireShape } from '../../api'
-import { baseUrlToVendor, vendorPreset, presetModels, pickAgentWire } from '../../lib/presetHelpers'
+import {
+  AGENT_WIRE_PREFERENCE,
+  WIRE_SHAPE_GUIDANCE,
+  agentWireShapes,
+  anthropicAuthModeForBaseUrl,
+  baseUrlToVendor,
+  savedCredentialModel,
+  vendorPreset,
+  presetModels,
+  pickAgentWire,
+} from '../../lib/presetHelpers'
 import { ModelCombobox } from '../credentials/PresetFields'
 import { useTestGate } from '../../lib/useTestGate'
 import { useWorkspaces } from '../../contexts/workspaces-context'
+import { WorkspaceTemplateUpgradePanel } from './WorkspaceTemplateUpgradePanel'
+import { WorkspaceAbsorbPanel } from './WorkspaceAbsorbPanel'
 
 // The agent tab implies a default vendor when the baseUrl alone can't say:
 // claude → Anthropic, codex → OpenAI; opencode/pi run anything so they have no
@@ -39,7 +51,7 @@ const TAB_FALLBACK_VENDOR: Record<Tab, string | null> = {
 }
 
 type Tab = 'claude' | 'codex' | 'opencode' | 'pi'
-type Section = 'general' | 'ai'
+type Section = 'general' | 'ai' | 'template' | 'absorb'
 
 interface Props {
   wsId: string
@@ -52,7 +64,7 @@ const inputClass =
   'w-full bg-bg-secondary border border-border rounded-md px-3 py-2 text-[13px] text-text placeholder:text-text-muted/60 focus:outline-none focus:border-accent'
 
 const TAB_LABEL: Record<Tab, string> = { claude: 'Claude Code', codex: 'Codex', opencode: 'opencode', pi: 'Pi' }
-const DEFAULT_CONTEXT_WINDOW = 1_000_000
+const DEFAULT_CONTEXT_WINDOW = 256_000
 const CONTEXT_WINDOW_OPTIONS = [
   { value: 128_000, label: '128K' },
   { value: 256_000, label: '256K' },
@@ -68,10 +80,10 @@ interface FormState {
   /** The wire protocol — drives the test + how the adapter is configured. */
   wireShape: WireShape
   wireApi: 'chat' | 'responses'
-  // Claude-only: which header carries the key. 'x-api-key' is Anthropic's
+  // Anthropic-wire only: which header carries the key. 'x-api-key' is Anthropic's
   // first-party default; 'bearer' (Authorization: Bearer) is what most
-  // anthropic-compatible gateways want — MiniMax's international endpoint
-  // (api.minimax.io) only accepts Bearer, which is why x-api-key 401s there.
+  // anthropic-compatible gateways want — MiniMax documents Bearer for both
+  // regional endpoints and the international endpoint rejects x-api-key.
   authMode: 'x-api-key' | 'bearer'
 }
 
@@ -119,7 +131,11 @@ function formToConfig(form: FormState, agent: AgentId): AgentConfig {
     wireShape: form.wireShape,
   }
   if (agent === 'opencode' || agent === 'pi') {
-    return { ...cfg, contextWindow: form.contextWindow }
+    return {
+      ...cfg,
+      contextWindow: form.contextWindow,
+      ...(form.wireShape === 'anthropic' ? { authMode: form.authMode } : {}),
+    }
   }
   if (agent === 'codex') {
     return { ...cfg, wireApi: form.wireApi }
@@ -136,19 +152,19 @@ function formToConfig(form: FormState, agent: AgentId): AgentConfig {
 // a result to the `key` it was tested against; editing any tested field changes
 // the key, so the result stops matching and Save re-locks. `testKey` lists
 // exactly the fields the probe covers (agent-specific: wireApi for codex,
-// authMode for claude).
-function testKey(form: FormState, agent: AgentId): string {
+// authMode for every Anthropic-wire request).
+function testKey(form: FormState): string {
   return [
     form.baseUrl.trim(),
     form.apiKey.trim(),
     form.model.trim(),
     form.wireShape,
-    agent === 'claude' ? form.authMode : '',
+    form.wireShape === 'anthropic' ? form.authMode : '',
   ].join('|')
 }
 
 export function WorkspaceAIConfigModal({ wsId, onClose, initialAgent = 'claude', initialSection = 'general' }: Props) {
-  const { workspaces, saveWorkspaceMetadata } = useWorkspaces()
+  const { workspaces, refresh, saveWorkspaceMetadata } = useWorkspaces()
   const workspace = workspaces.find((w) => w.id === wsId) ?? null
   const workspaceLabel = workspace?.displayName?.trim() || workspace?.tag || wsId
   const [section, setSection] = useState<Section>(initialSection)
@@ -165,6 +181,7 @@ export function WorkspaceAIConfigModal({ wsId, onClose, initialAgent = 'claude',
   const [opencodeForm, setOpencodeForm] = useState<FormState>(EMPTY_FORM)
   const [piForm, setPiForm] = useState<FormState>(EMPTY_FORM)
   const [pickedCredential, setPickedCredential] = useState<string>('')
+  const [pickedWireShape, setPickedWireShape] = useState<WireShape | ''>('')
   const [showKey, setShowKey] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -184,6 +201,8 @@ export function WorkspaceAIConfigModal({ wsId, onClose, initialAgent = 'claude',
   useEffect(() => {
     setSection(initialSection)
     setTab(initialAgent)
+    setPickedCredential('')
+    setPickedWireShape('')
   }, [initialAgent, initialSection, wsId])
 
   useEffect(() => {
@@ -223,7 +242,7 @@ export function WorkspaceAIConfigModal({ wsId, onClose, initialAgent = 'claude',
     return p ? presetModels(p) : []
   }, [form.baseUrl, tab, presets])
   const gate = { claude: claudeGate, codex: codexGate, opencode: opencodeGate, pi: piGate }[tab]
-  const key = testKey(form, tab)
+  const key = testKey(form)
   const testing = gate.testing
   const result = gate.result
   const resultMatchesCurrent = gate.matchesCurrent(key)
@@ -238,7 +257,7 @@ export function WorkspaceAIConfigModal({ wsId, onClose, initialAgent = 'claude',
       savedForm.model !== form.model ||
       savedForm.wireShape !== form.wireShape ||
       ((tab === 'opencode' || tab === 'pi') && savedForm.contextWindow !== form.contextWindow) ||
-      (tab === 'claude' && savedForm.authMode !== form.authMode)
+      (form.wireShape === 'anthropic' && savedForm.authMode !== form.authMode)
     )
   }, [bundle, form, tab])
   // The primary footer button morphs Test → Save off this: an unsaved change
@@ -251,22 +270,21 @@ export function WorkspaceAIConfigModal({ wsId, onClose, initialAgent = 'claude',
     if (!cred) return
     // Pick the wire this tab's agent speaks from the credential's capabilities.
     // (The picker only lists compatible credentials, so this is non-null.)
-    const picked = pickAgentWire(cred.wires, tab)
+    const picked = pickAgentWire(cred.wires, tab, pickedWireShape || undefined)
     if (!picked) return
-    // A credential carries no model, so default it to the matched provider's
-    // first model — a stale model from a previous provider (e.g. minimax-m3 left
-    // on a GLM endpoint) would 404. The user can still pick another below.
+    // Prefer the model this credential last used. A newly-created credential
+    // falls back to the catalog's explicit default, not list order: catalogs
+    // put the newest models first for discovery while retaining a conservative
+    // default for first use (notably Gemini Flash-Lite vs 3.5 Flash).
     const vendorP = vendorPreset(cred.vendor, presets)
-    const defaultModel = vendorP ? (presetModels(vendorP)[0]?.id ?? '') : ''
-    // Auth mode: api.minimax.io needs Bearer; default x-api-key otherwise.
-    const bearer = /api\.minimax\.io/i.test(picked.baseUrl)
+    const defaultModel = savedCredentialModel(cred, vendorP)
     setForm({
       ...form,
       baseUrl: picked.baseUrl,
       apiKey: cred.apiKey ?? '',
       model: defaultModel,
       wireShape: picked.shape,
-      authMode: bearer ? 'bearer' : 'x-api-key',
+      authMode: anthropicAuthModeForBaseUrl(picked.baseUrl),
     })
     gate.reset() // a new provider invalidates any prior test verdict
   }
@@ -278,6 +296,10 @@ export function WorkspaceAIConfigModal({ wsId, onClose, initialAgent = 'claude',
       await saveAgentConfig(wsId, tab, formToConfig(form, tab))
       const fresh = await getAgentConfig(wsId)
       setBundle(fresh)
+      window.dispatchEvent(new CustomEvent('openalice:workspace-agent-config-changed', {
+        detail: { wsId, agent: tab },
+      }))
+      window.dispatchEvent(new CustomEvent('openalice:credentials-changed'))
       setSavedFlash(true)
       setTimeout(() => setSavedFlash(false), 1800)
       // Offer to solidify a hand-entered key into Alice's central store — but
@@ -372,7 +394,7 @@ export function WorkspaceAIConfigModal({ wsId, onClose, initialAgent = 'claude',
         apiKey: form.apiKey.trim(),
         model: form.model.trim(),
         wireShape: form.wireShape,
-        ...(tab === 'claude' ? { authMode: form.authMode } : {}),
+        ...(form.wireShape === 'anthropic' ? { authMode: form.authMode } : {}),
       }),
     )
   }
@@ -436,6 +458,33 @@ export function WorkspaceAIConfigModal({ wsId, onClose, initialAgent = 'claude',
             >
               <Bot size={15} />
               <span>AI Provider</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSection('template')}
+              className={`flex min-w-0 flex-1 items-center gap-2 rounded-md px-2.5 py-2 text-left text-[12px] font-medium transition-colors sm:mt-1 sm:w-full ${
+                section === 'template'
+                  ? 'bg-accent/10 text-accent'
+                  : 'text-text-muted hover:bg-bg-tertiary hover:text-text'
+              }`}
+            >
+              <Layers3 size={15} />
+              <span>Template</span>
+              {workspace?.upgradeAvailable && (
+                <span className="ml-auto h-1.5 w-1.5 rounded-full bg-accent" aria-label="Update available" />
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setSection('absorb')}
+              className={`flex min-w-0 flex-1 items-center gap-2 rounded-md px-2.5 py-2 text-left text-[12px] font-medium transition-colors sm:mt-1 sm:w-full ${
+                section === 'absorb'
+                  ? 'bg-accent/10 text-accent'
+                  : 'text-text-muted hover:bg-bg-tertiary hover:text-text'
+              }`}
+            >
+              <GitMerge size={15} />
+              <span>Consolidate</span>
             </button>
           </aside>
 
@@ -533,7 +582,11 @@ export function WorkspaceAIConfigModal({ wsId, onClose, initialAgent = 'claude',
           {(['claude', 'codex', 'opencode', 'pi'] as const).map((id) => (
             <button
               key={id}
-              onClick={() => setTab(id)}
+              onClick={() => {
+                setTab(id)
+                setPickedCredential('')
+                setPickedWireShape('')
+              }}
               className={`flex-1 px-4 py-2.5 text-[13px] font-medium transition-colors ${
                 tab === id
                   ? 'text-accent border-b-2 border-accent -mb-px'
@@ -557,12 +610,22 @@ export function WorkspaceAIConfigModal({ wsId, onClose, initialAgent = 'claude',
               // Responses-only, so most credentials won't list here — the funnel
               // toward pi/opencode is by design.
               const compatible = credentials.filter((c) => pickAgentWire(c.wires, tab))
+              const selectedCredential = compatible.find((c) => c.slug === pickedCredential)
+              const selectedWireOptions = selectedCredential
+                ? agentWireShapes(selectedCredential.wires, tab)
+                : []
               return (
                 <>
-                  <div className="flex gap-2">
+                  <div className="flex flex-col gap-2 sm:flex-row">
                     <select
+                      aria-label={`${TAB_LABEL[tab]} saved credential`}
                       value={pickedCredential}
-                      onChange={(e) => setPickedCredential(e.target.value)}
+                      onChange={(e) => {
+                        const slug = e.target.value
+                        const cred = compatible.find((candidate) => candidate.slug === slug)
+                        setPickedCredential(slug)
+                        setPickedWireShape(cred ? (agentWireShapes(cred.wires, tab)[0] ?? '') : '')
+                      }}
                       className={inputClass + ' flex-1'}
                       disabled={compatible.length === 0}
                     >
@@ -570,14 +633,26 @@ export function WorkspaceAIConfigModal({ wsId, onClose, initialAgent = 'claude',
                         {compatible.length === 0 ? `— no ${TAB_LABEL[tab]}-compatible credential —` : '— select a credential —'}
                       </option>
                       {compatible.map((cred) => {
-                        const picked = pickAgentWire(cred.wires, tab)
+                        const shapes = agentWireShapes(cred.wires, tab)
                         return (
                           <option key={cred.slug} value={cred.slug}>
-                            {(cred.label?.trim() || cred.slug)}{picked?.baseUrl ? ` · ${picked.baseUrl}` : ''}
+                            {(cred.label?.trim() || cred.slug)}{shapes.length > 1 ? ` · ${shapes.length} protocols` : ''}
                           </option>
                         )
                       })}
                     </select>
+                    {selectedWireOptions.length > 1 && (
+                      <select
+                        aria-label="Saved credential API protocol"
+                        value={pickedWireShape}
+                        onChange={(e) => setPickedWireShape(e.target.value as WireShape)}
+                        className={inputClass + ' sm:max-w-[210px]'}
+                      >
+                        {selectedWireOptions.map((shape) => (
+                          <option key={shape} value={shape}>{WIRE_SHAPE_GUIDANCE[shape]}</option>
+                        ))}
+                      </select>
+                    )}
                     <button
                       onClick={applyCredential}
                       disabled={!pickedCredential}
@@ -589,7 +664,7 @@ export function WorkspaceAIConfigModal({ wsId, onClose, initialAgent = 'claude',
                   <p className="text-[11px] text-text-muted/80 leading-snug mt-1.5">
                     {compatible.length === 0 && credentials.length > 0
                       ? `None of your saved credentials speak a wire ${TAB_LABEL[tab]} supports — add one for this provider, or use a runtime that matches (pi / opencode).`
-                      : 'Fills base URL + key from a credential Alice already holds, using the wire this runtime speaks. Pick a model below. Or type a new one; you\'ll be offered to save it after Test + Save.'}
+                      : 'Fills base URL + key from a credential Alice already holds. When it exposes several compatible protocols, choose the one this Workspace should use. Pick a model below, or type a new one.'}
                   </p>
                 </>
               )
@@ -597,13 +672,47 @@ export function WorkspaceAIConfigModal({ wsId, onClose, initialAgent = 'claude',
           </div>
 
           {/* Manual fields */}
+          {(tab === 'opencode' || tab === 'pi') && (
+            <div>
+              <label className="block text-xs font-medium text-text-muted mb-1">API protocol</label>
+              <select
+                aria-label={`${TAB_LABEL[tab]} API protocol`}
+                value={form.wireShape}
+                onChange={(e) => {
+                  const wireShape = e.target.value as WireShape
+                  const selected = credentials.find((candidate) => candidate.slug === pickedCredential)
+                  const selectedBaseUrl = selected?.wires[wireShape]
+                  setForm({
+                    ...form,
+                    wireShape,
+                    ...(selectedBaseUrl !== undefined ? { baseUrl: selectedBaseUrl } : {}),
+                    ...(wireShape === 'anthropic'
+                      ? { authMode: anthropicAuthModeForBaseUrl(selectedBaseUrl ?? form.baseUrl) }
+                      : {}),
+                  })
+                  gate.reset()
+                }}
+                className={inputClass}
+              >
+                {(AGENT_WIRE_PREFERENCE[tab] ?? []).map((shape) => (
+                  <option key={shape} value={shape}>{WIRE_SHAPE_GUIDANCE[shape]}</option>
+                ))}
+              </select>
+              <p className="text-[11px] text-text-muted/80 leading-snug mt-1">
+                This chooses the agent SDK/provider adapter. The Base URL must expose the matching protocol.
+              </p>
+            </div>
+          )}
+
           <div>
             <label className="block text-xs font-medium text-text-muted mb-1">Base URL</label>
             <input
               value={form.baseUrl}
               onChange={(e) => setForm({ ...form, baseUrl: e.target.value })}
               placeholder={
-                tab === 'claude'
+                form.wireShape === 'google-generative-ai'
+                  ? 'https://generativelanguage.googleapis.com/v1beta'
+                  : tab === 'claude'
                   ? 'https://api.anthropic.com (default)'
                   : tab === 'opencode' || tab === 'pi'
                   ? 'https://api.deepseek.com/v1'
@@ -623,7 +732,7 @@ export function WorkspaceAIConfigModal({ wsId, onClose, initialAgent = 'claude',
                 type={showKey ? 'text' : 'password'}
                 value={form.apiKey}
                 onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
-                placeholder="sk-..."
+                placeholder={form.wireShape === 'google-generative-ai' ? 'AQ... or AIza...' : 'sk-...'}
                 className={inputClass + ' flex-1'}
                 spellCheck={false}
                 autoCapitalize="off"
@@ -639,26 +748,24 @@ export function WorkspaceAIConfigModal({ wsId, onClose, initialAgent = 'claude',
             </div>
           </div>
 
-          {tab === 'claude' && (
+          {form.wireShape === 'anthropic' && (
             <div>
               <label className="block text-xs font-medium text-text-muted mb-1">Auth header</label>
               <select
+                aria-label={`${TAB_LABEL[tab]} auth header`}
                 value={form.authMode}
                 onChange={(e) => setForm({ ...form, authMode: e.target.value as FormState['authMode'] })}
                 className={inputClass}
               >
                 <option value="x-api-key">x-api-key — Anthropic default</option>
-                <option value="bearer">Authorization: Bearer — gateways (MiniMax intl, proxies)</option>
+                <option value="bearer">Authorization: Bearer — gateways (MiniMax, LongCat, proxies)</option>
               </select>
               <p className="text-[11px] text-text-muted/80 leading-snug mt-1">
                 Anthropic first-party uses <code className="font-mono text-[10.5px]">x-api-key</code>.
                 Switch to <code className="font-mono text-[10.5px]">Bearer</code> for
                 anthropic-compatible gateways that authenticate via{' '}
                 <code className="font-mono text-[10.5px]">Authorization: Bearer</code> — e.g.
-                MiniMax's international endpoint (<code className="font-mono text-[10.5px]">api.minimax.io</code>),
-                which rejects x-api-key. Written as{' '}
-                <code className="font-mono text-[10.5px]">ANTHROPIC_AUTH_TOKEN</code> instead of{' '}
-                <code className="font-mono text-[10.5px]">ANTHROPIC_API_KEY</code>.
+                MiniMax and LongCat. The selected agent adapter writes the matching header or runtime setting.
               </p>
             </div>
           )}
@@ -674,12 +781,14 @@ export function WorkspaceAIConfigModal({ wsId, onClose, initialAgent = 'claude',
             {modelSuggestions.length > 0 && (
               <p className="text-[11px] text-text-muted/70 mt-1">Suggestions from the matched provider — or type any model id.</p>
             )}
+
           </div>
 
           {(tab === 'opencode' || tab === 'pi') && (
             <div>
               <label className="block text-xs font-medium text-text-muted mb-1">Context window</label>
               <select
+                aria-label={`${TAB_LABEL[tab]} context window`}
                 value={form.contextWindow}
                 onChange={(e) => setForm({ ...form, contextWindow: Number(e.target.value) })}
                 className={inputClass}
@@ -709,12 +818,27 @@ export function WorkspaceAIConfigModal({ wsId, onClose, initialAgent = 'claude',
           {tab === 'opencode' && (
             <div className="rounded-md border border-border bg-bg-secondary/50 px-3 py-2.5">
               <p className="text-[12px] text-text-muted leading-relaxed">
-                <strong className="text-text">Speaks OpenAI Chat Completions</strong> (via{' '}
-                <code className="font-mono text-[11.5px]">@ai-sdk/openai-compatible</code>), so it
-                connects <strong className="text-text">directly</strong> to Chat-only providers —
-                DeepSeek, Qwen, Moonshot/Kimi, GLM, MiniMax — and local runtimes (Ollama, vLLM,
-                LM Studio). No translation proxy needed. Base URL is the provider's
-                OpenAI-compatible endpoint; Model is the bare model id.
+                {form.wireShape === 'google-generative-ai' ? (
+                  <><strong className="text-text">Native Google Generative AI wire</strong> (via{' '}
+                  <code className="font-mono text-[11.5px]">@ai-sdk/google</code>) — supports current{' '}
+                  <code className="font-mono text-[11.5px]">AQ.</code> authorization keys and legacy{' '}
+                  <code className="font-mono text-[11.5px]">AIza</code> keys without a translation proxy.</>
+                ) : form.wireShape === 'anthropic' ? (
+                  <><strong className="text-text">Anthropic Messages wire</strong> (via{' '}
+                  <code className="font-mono text-[11.5px]">@ai-sdk/anthropic</code>) — use the
+                  provider's Anthropic-compatible endpoint and choose its required auth header.</>
+                ) : form.wireShape === 'openai-responses' ? (
+                  <><strong className="text-text">OpenAI Responses wire</strong> (via{' '}
+                  <code className="font-mono text-[11.5px]">@ai-sdk/openai</code>) — use an endpoint
+                  that implements Responses, not a Chat-only compatibility URL.</>
+                ) : (
+                  <><strong className="text-text">Speaks OpenAI Chat Completions</strong> (via{' '}
+                  <code className="font-mono text-[11.5px]">@ai-sdk/openai-compatible</code>), so it
+                  connects <strong className="text-text">directly</strong> to Chat-only providers —
+                  DeepSeek, Qwen, Moonshot/Kimi, GLM, MiniMax — and local runtimes (Ollama, vLLM,
+                  LM Studio). No translation proxy needed. Base URL is the provider's
+                  OpenAI-compatible endpoint; Model is the bare model id.</>
+                )}
               </p>
             </div>
           )}
@@ -722,9 +846,22 @@ export function WorkspaceAIConfigModal({ wsId, onClose, initialAgent = 'claude',
           {tab === 'pi' && (
             <div className="rounded-md border border-border bg-bg-secondary/50 px-3 py-2.5">
               <p className="text-[12px] text-text-muted leading-relaxed">
-                <strong className="text-text">OpenAI Chat Completions wire</strong> — connects
-                directly to DeepSeek, Qwen, Kimi, GLM, MiniMax and local runtimes; Base URL is the
-                provider's OpenAI-compatible endpoint, Model is the bare model id. Written to a
+                {form.wireShape === 'google-generative-ai' ? (
+                  <><strong className="text-text">Native Google Generative AI wire</strong> — sends current{' '}
+                  <code className="font-mono text-[11.5px]">AQ.</code> authorization keys and legacy{' '}
+                  <code className="font-mono text-[11.5px]">AIza</code> keys as{' '}
+                  <code className="font-mono text-[11.5px]">x-goog-api-key</code>.</>
+                ) : form.wireShape === 'anthropic' ? (
+                  <><strong className="text-text">Anthropic Messages wire</strong> — use the
+                  provider's Anthropic-compatible endpoint and choose its required auth header.</>
+                ) : form.wireShape === 'openai-responses' ? (
+                  <><strong className="text-text">OpenAI Responses wire</strong> — use an endpoint
+                  that implements Responses rather than Chat Completions only.</>
+                ) : (
+                  <><strong className="text-text">OpenAI Chat Completions wire</strong> — connects
+                  directly to DeepSeek, Qwen, Kimi, GLM, MiniMax and local runtimes; Base URL is the
+                  provider's OpenAI-compatible endpoint, Model is the bare model id.</>
+                )}{' '}Written to a
                 per-workspace <code className="font-mono text-[11.5px]">.pi-agent/models.json</code>.
                 Trading tools reach Pi through the <code className="font-mono text-[11.5px]">alice-uta</code>{' '}
                 CLI on PATH (the <code className="font-mono text-[11.5px]">alice-uta</code> skill),
@@ -861,6 +998,23 @@ export function WorkspaceAIConfigModal({ wsId, onClose, initialAgent = 'claude',
           </div>
         </div>
               </>
+            )}
+
+            {section === 'template' && (
+              <WorkspaceTemplateUpgradePanel
+                wsId={wsId}
+                onWorkspaceChanged={refresh}
+                onClose={onClose}
+              />
+            )}
+
+            {section === 'absorb' && workspace && (
+              <WorkspaceAbsorbPanel
+                target={workspace}
+                workspaces={workspaces}
+                onWorkspaceChanged={refresh}
+                onClose={onClose}
+              />
             )}
           </div>
         </div>

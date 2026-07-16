@@ -3,6 +3,7 @@ set -euo pipefail
 
 REPOSITORY="TraderAlice/OpenAlice"
 DEFAULT_BRANCH="master"
+PUBLIC_INSTALLER_URL="https://openalice.ai/install"
 VERSION=""
 REF_KIND=""
 REF_OPTION=""
@@ -97,7 +98,7 @@ Usage:
   ./install
   ./install --branch dev
   ./install --version <tag-or-commit>
-  curl -fsSL https://raw.githubusercontent.com/TraderAlice/OpenAlice/dev/install | bash -s -- --branch dev
+  curl -fsSL https://openalice.ai/install | bash
 
 Options:
   --branch <name>       Git branch to install (default: master)
@@ -421,7 +422,11 @@ if [[ ${#VERSION} -gt 128 || "$VERSION" == *".."* || ! "$VERSION" =~ ^[A-Za-z0-9
   die "Unsupported version/ref: $VERSION"
 fi
 
-INSTALLER_URL="${OPENALICE_INSTALL_URL:-https://raw.githubusercontent.com/$REPOSITORY/$VERSION/install}"
+DEFAULT_INSTALLER_URL="https://raw.githubusercontent.com/$REPOSITORY/$VERSION/install"
+if [[ "$REF_KIND" == "branch" && "$VERSION" == "$DEFAULT_BRANCH" ]]; then
+  DEFAULT_INSTALLER_URL="$PUBLIC_INSTALLER_URL"
+fi
+INSTALLER_URL="${OPENALICE_INSTALL_URL:-$DEFAULT_INSTALLER_URL}"
 
 INSTALL_ROOT="${INSTALL_ROOT/#\~/$HOME}"
 BIN_DIR="$INSTALL_ROOT/bin"

@@ -309,6 +309,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+
       - name: Download release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -316,6 +320,13 @@ jobs:
         run: |
           mkdir -p dist/r2-upload
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir dist/r2-upload --clobber
+
+      - name: Prepare release-owned CLI installer
+        env:
+          TAG: ${{ github.event.inputs.mirror_tag || needs.release.outputs.tag }}
+        run: |
+          VERSION="${TAG#v}"
+          cp install "dist/r2-upload/OpenAlice-${VERSION}-install"
 
       - name: Prepare CDN download aliases
         env:
@@ -328,13 +339,17 @@ jobs:
             --base-url "${DOWNLOAD_BASE_URL:-https://download.openalice.ai}" \
             --repository "$GITHUB_REPOSITORY"
 
-      - name: Publish architecture-specific macOS update metadata
+      - name: Publish generated release metadata and installer
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.event.inputs.mirror_tag || needs.release.outputs.tag }}
         run: |
           shopt -s nullglob
           files=(dist/r2-upload/*-mac-intel.yml dist/r2-upload/*-intel-mac.yml dist/r2-upload/latest-mac-arm64.yml)
+          installer="dist/r2-upload/OpenAlice-${TAG#v}-install"
+          if [ -f "$installer" ]; then
+            files+=("$installer")
+          fi
           if ((${#files[@]})); then
             gh release upload "$TAG" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber
           fi
@@ -364,6 +379,8 @@ jobs:
             --exclude "mac-x64.dmg" \
             --exclude "mac-x64.zip" \
             --exclude "windows-x64.exe" \
+            --exclude "install" \
+            --exclude "OpenAlice-*-install" \
             --cache-control "public, max-age=31536000, immutable" \
             --endpoint-url "$ENDPOINT"
 
@@ -378,6 +395,18 @@ jobs:
           aws s3 cp dist/r2-upload/manifest.json "s3://${R2_BUCKET}/manifest.json" \
             --cache-control "no-cache" \
             --content-type "application/json" \
+            --endpoint-url "$ENDPOINT"
+
+          for installer in dist/r2-upload/OpenAlice-*-install; do
+            aws s3 cp "$installer" "s3://${R2_BUCKET}/$(basename "$installer")" \
+              --cache-control "public, max-age=31536000, immutable" \
+              --content-type "text/plain" \
+              --endpoint-url "$ENDPOINT"
+          done
+
+          aws s3 cp dist/r2-upload/install "s3://${R2_BUCKET}/install" \
+            --cache-control "no-cache" \
+            --content-type "text/plain" \
             --endpoint-url "$ENDPOINT"
 
           if [ -f dist/r2-upload/mac-arm64.dmg ]; then
@@ -453,6 +482,21 @@ jobs:
           fi
           curl -fsSI "${BASE_URL}/windows-x64.exe"
           curl -fsSI "${BASE_URL}/manifest.json"
+          curl -fsSI "${BASE_URL}/OpenAlice-${VERSION}-install"
+          curl -fsSI "${BASE_URL}/install"
+          curl -fsSL "${BASE_URL}/install" -o /tmp/openalice-install
+          cmp /tmp/openalice-install dist/r2-upload/install
+          bash -n /tmp/openalice-install
+          bash /tmp/openalice-install --plan | tee /tmp/openalice-install-plan
+          grep -Eq '^  Branch[[:space:]]+master$' /tmp/openalice-install-plan
+          INSTALLER_PATH=/tmp/openalice-install MANIFEST_URL="${BASE_URL}/manifest.json" node -e '
+            const { createHash } = require("node:crypto");
+            const { readFileSync } = require("node:fs");
+            const manifest = JSON.parse(require("node:child_process").execFileSync("curl", ["-fsSL", process.env.MANIFEST_URL], { encoding: "utf8" }));
+            const digest = createHash("sha256").update(readFileSync(process.env.INSTALLER_PATH)).digest("hex");
+            if (manifest.installer?.url !== process.env.MANIFEST_URL.replace(/manifest\.json$/, "install")) process.exit(1);
+            if (manifest.installer?.sha256 !== digest) process.exit(1);
+          '
 
           for catalog in dist/r2-upload/OpenAlice-Broker-Packs-${VERSION}-*.json; do
             curl -fsSI "${BASE_URL}/$(basename "$catalog")"

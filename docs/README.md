@@ -36,7 +36,7 @@ guides.
 ## User Quickstarts
 
 - [[docs/remote-quickstart.md]] — [Remote quickstart](remote-quickstart.md):
-  install the preview CLI, prepare a private SSH host, connect and reconnect,
+  install the stable CLI, prepare a private SSH host, connect and reconnect,
   understand Server lifetime and security, and see the design inspiration
   behind the remote path.
 

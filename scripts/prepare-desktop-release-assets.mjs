@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { createHash } from 'node:crypto'
 import { copyFileSync, existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -75,6 +76,10 @@ function copyAlias(outDir, source, alias) {
   return alias
 }
 
+function sha256File(path) {
+  return createHash('sha256').update(readFileSync(path)).digest('hex')
+}
+
 export function prepareMirrorAssets({ outDir, tag, baseUrl, repository }) {
   const version = tag.replace(/^v/, '')
   const channel = prereleaseChannel(version)
@@ -86,12 +91,14 @@ export function prepareMirrorAssets({ outDir, tag, baseUrl, repository }) {
   const macX64Zip = findFirst(names, [`OpenAlice-${version}-x64-mac.zip`, `OpenAlice-${version}-mac.zip`])
   const windowsX64Exe = findFirst(names, [`OpenAlice.Setup.${version}.exe`])
   const windowsX64Blockmap = findFirst(names, [`OpenAlice.Setup.${version}.exe.blockmap`])
+  const installerAsset = findFirst(names, [`OpenAlice-${version}-install`])
 
   copyAlias(outDir, macArm64Dmg, 'mac-arm64.dmg')
   copyAlias(outDir, macArm64Zip, 'mac-arm64.zip')
   copyAlias(outDir, macX64Dmg, 'mac-x64.dmg')
   copyAlias(outDir, macX64Zip, 'mac-x64.zip')
   copyAlias(outDir, windowsX64Exe, 'windows-x64.exe')
+  copyAlias(outDir, installerAsset, 'install')
 
   if (channel !== 'latest') {
     copyIfPresent(outDir, 'latest-mac.yml', [`${channel}-mac.yml`])
@@ -127,6 +134,11 @@ export function prepareMirrorAssets({ outDir, tag, baseUrl, repository }) {
     macX64Dmg: urlFor(macX64Dmg && 'mac-x64.dmg'),
     macX64Zip: urlFor(macX64Zip && 'mac-x64.zip'),
     windowsX64Exe: urlFor(windowsX64Exe && 'windows-x64.exe'),
+    installer: installerAsset ? {
+      url: urlFor('install'),
+      sha256: sha256File(join(outDir, 'install')),
+      versionedUrl: urlFor(installerAsset),
+    } : null,
     versioned: {
       macArm64Dmg: urlFor(macArm64Dmg),
       macArm64Zip: urlFor(macArm64Zip),

@@ -8,7 +8,7 @@ export const DEFAULT_INSTALL_SOURCE = Object.freeze({
   repository: 'TraderAlice/OpenAlice',
   cliVersion: CLI_VERSION,
   selector: Object.freeze({ kind: 'branch', value: 'master' }),
-  installerUrl: 'https://raw.githubusercontent.com/TraderAlice/OpenAlice/master/install',
+  installerUrl: 'https://openalice.ai/install',
 })
 
 export async function readInstallSource(options = {}) {

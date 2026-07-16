@@ -17,11 +17,15 @@ afterEach(async () => {
 })
 
 describe('OpenAlice install source', () => {
-  it('uses master only when no installed metadata exists', async () => {
+  it('uses the public master installer when no installed metadata exists', async () => {
     const root = await mkdtemp(join(tmpdir(), 'openalice-install-source-'))
     temporaryPaths.push(root)
     await expect(readInstallSource({ metadataUrl: join(root, 'missing.json') }))
       .resolves.toEqual(DEFAULT_INSTALL_SOURCE)
+    expect(DEFAULT_INSTALL_SOURCE).toMatchObject({
+      selector: { kind: 'branch', value: 'master' },
+      installerUrl: 'https://openalice.ai/install',
+    })
   })
 
   it('rejects malformed installed metadata instead of silently changing channels', async () => {

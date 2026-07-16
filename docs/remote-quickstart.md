@@ -100,7 +100,7 @@ Clone the current preview lane on the remote host:
 
 ```bash
 ssh openalice-box \
-  'git clone --branch dev https://github.com/TraderAlice/OpenAlice.git "$HOME/OpenAlice"'
+  'git clone --branch master https://github.com/TraderAlice/OpenAlice.git "$HOME/OpenAlice"'
 ```
 
 Ask the remote shell for the absolute path. `openalice remote` intentionally
@@ -114,10 +114,10 @@ The examples below use `/home/alice/OpenAlice`; replace it with that output.
 
 ### 2. Install the local CLI
 
-The preview installer shows its complete plan before asking for consent:
+The stable installer shows its complete plan before asking for consent:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/TraderAlice/OpenAlice/dev/install | bash -s -- --branch dev
+curl -fsSL https://openalice.ai/install | bash
 ```
 
 Open a new terminal so the managed PATH block is active, then verify both
@@ -344,8 +344,8 @@ the UI before building a more specialized terminal transport.
 
 - The remote host must already contain an OpenAlice checkout; `remote` does not
   clone or update source.
-- The preview installer follows mutable `dev` rather than signed immutable
-  release assets.
+- The bootstrap is a release-owned asset, but the installed CLI payload still
+  comes from the selected GitHub ref rather than a signed standalone archive.
 - Linux and macOS remote hosts are supported; the native Windows distribution
   remains Electron.
 - One interactive browser per terminal is the conservative assumption until

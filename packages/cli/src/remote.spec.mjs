@@ -24,7 +24,7 @@ const masterInstallSource = {
   repository: 'TraderAlice/OpenAlice',
   cliVersion: '0.2.0',
   selector: { kind: 'branch', value: 'master' },
-  installerUrl: 'https://raw.githubusercontent.com/TraderAlice/OpenAlice/master/install',
+  installerUrl: 'https://openalice.ai/install',
 }
 
 describe('OpenAlice managed remote connector', () => {
